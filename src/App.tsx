@@ -1,12 +1,23 @@
 import {
+  Activity,
   Archive,
+  BadgeCheck,
+  Bot,
   CheckCircle2,
+  CircleDollarSign,
+  ClipboardCheck,
+  Clock3,
+  Command,
   Download,
-  FileCheck2,
+  FileStack,
   FileText,
+  Gauge,
   Loader2,
+  ReceiptText,
   Search,
   Settings,
+  ShieldCheck,
+  Sparkles,
   Table2,
   UploadCloud,
   Wand2
@@ -40,6 +51,11 @@ function formatMoney(value: number | null | undefined): string {
 
 function statusLabel(status: string): string {
   return status.replace("_", " ");
+}
+
+function formatPercent(value: number | null | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "0%";
+  return `${Math.round(value * 100)}%`;
 }
 
 function cloneInvoice(invoice: InvoiceRecord): InvoiceRecord {
@@ -219,51 +235,106 @@ function App() {
     });
   }
 
+  const activeViewTitle =
+    view === "queue" ? "Invoice Command" : view === "library" ? "Finalized Vault" : view === "gl" ? "GL Intelligence" : "Control Surface";
+  const activeViewSubtitle =
+    view === "queue"
+      ? "Review, code, stamp, and finalize invoices from one focused cockpit."
+      : view === "library"
+        ? "Search-ready finalized PDFs with clean naming and audit context."
+        : view === "gl"
+          ? "The matching brain: codes, descriptions, and keyword signals."
+          : "Tune approval initials and automation thresholds.";
+  const topSuggestion = draft?.glSuggestions[0];
+  const draftLineTotal = draft ? sumLines(draft.glLines) : 0;
+  const amountBalance =
+    draft && typeof draft.extraction.totalAmount === "number"
+      ? Number((draft.extraction.totalAmount - draftLineTotal).toFixed(2))
+      : null;
+
   return (
-    <main className="app-shell">
-      <aside className="sidebar">
+    <main className="app-shell intelligence-shell">
+      <aside className="sidebar command-rail">
         <div className="brand">
-          <FileCheck2 size={28} />
+          <div className="brand-mark">
+            <Command size={22} />
+          </div>
           <div>
-            <strong>Invoice Approval</strong>
-            <span>{hasOpenAiKey ? "AI extraction on" : "manual review mode"}</span>
+            <strong>LedgerFlow</strong>
+            <span>{hasOpenAiKey ? "AI extraction live" : "manual review mode"}</span>
           </div>
         </div>
-        <nav>
+        <nav aria-label="Primary workspace">
           <button className={view === "queue" ? "active" : ""} onClick={() => setView("queue")}>
-            <FileText size={18} /> Queue
+            <ReceiptText size={18} /> Command
           </button>
           <button className={view === "library" ? "active" : ""} onClick={() => setView("library")}>
-            <Archive size={18} /> Library
+            <Archive size={18} /> Vault
           </button>
           <button className={view === "gl" ? "active" : ""} onClick={() => setView("gl")}>
-            <Table2 size={18} /> GL Codes
+            <Table2 size={18} /> GL Brain
           </button>
           <button className={view === "settings" ? "active" : ""} onClick={() => setView("settings")}>
-            <Settings size={18} /> Settings
+            <Settings size={18} /> Controls
           </button>
         </nav>
+        <div className="rail-status">
+          <span>STLMO</span>
+          <strong>{queueInvoices.length} pending</strong>
+          <em>{finalizedInvoices.length} finalized documents</em>
+        </div>
       </aside>
 
-      <section className="workspace">
-        <header className="topbar">
+      <section className="workspace studio-workspace">
+        <header className="topbar command-bar">
           <div>
-            <h1>{view === "queue" ? "Invoice Queue" : view === "library" ? "Finalized Library" : view === "gl" ? "GL Codes" : "Stamp Settings"}</h1>
-            <p>{queueInvoices.length} pending · {finalizedInvoices.length} finalized · {glCodes.length} GL codes</p>
+            <span className="eyebrow">AI invoice approval workspace</span>
+            <h1>{activeViewTitle}</h1>
+            <p>{activeViewSubtitle}</p>
           </div>
-          {busy && <Loader2 className="spin" size={22} />}
+          <div className="topbar-metrics">
+            <div>
+              <Clock3 size={16} />
+              <span>{queueInvoices.length}</span>
+              <small>pending</small>
+            </div>
+            <div>
+              <FileStack size={16} />
+              <span>{finalizedInvoices.length}</span>
+              <small>finalized</small>
+            </div>
+            <div>
+              <Gauge size={16} />
+              <span>{glCodes.length}</span>
+              <small>GL signals</small>
+            </div>
+            {busy && <Loader2 className="spin" size={22} />}
+          </div>
         </header>
 
         {message && <div className="notice">{message}</div>}
 
         {view === "queue" && (
-          <section className="queue-layout">
-            <div className="left-column">
-              <label className="upload-zone">
-                <UploadCloud size={28} />
-                <span>Upload invoice PDFs</span>
+          <section className="queue-layout console-grid">
+            <div className="left-column intelligence-queue">
+              <div className="panel-title">
+                <div>
+                  <span>Intake</span>
+                  <h2>Invoice Queue</h2>
+                </div>
+                <em>{invoices.length} total</em>
+              </div>
+              <label className="upload-zone elevated-upload">
+                <UploadCloud size={24} />
+                <span>Drop invoice PDFs</span>
                 <input type="file" accept="application/pdf" multiple onChange={handleUpload} />
               </label>
+
+              <div className="queue-filters">
+                <span className="active-filter">All</span>
+                <span>Review</span>
+                <span>Final</span>
+              </div>
 
               <div className="invoice-list">
                 {invoices.map((invoice) => (
@@ -272,6 +343,7 @@ function App() {
                     className={`invoice-row ${selectedId === invoice.id ? "selected" : ""}`}
                     onClick={() => setSelectedId(invoice.id)}
                   >
+                    <span className="doc-chip"><FileText size={15} /></span>
                     <div>
                       <strong>{invoice.extraction.vendorName || invoice.originalName}</strong>
                       <span>{invoice.extraction.invoiceNumber || "No invoice number"} · {formatMoney(invoice.extraction.totalAmount)}</span>
@@ -282,16 +354,33 @@ function App() {
               </div>
             </div>
 
-            <div className="review-surface">
+            <div className="review-surface approval-grid">
               {draft ? (
                 <>
-                  <div className="pdf-pane">
-                    <iframe title="Invoice PDF preview" src={`/api/invoices/${draft.id}/original.pdf`} />
+                  <div className="pdf-pane document-stage">
+                    <div className="document-toolbar">
+                      <div>
+                        <span>Source PDF</span>
+                        <strong>{draft.originalName}</strong>
+                      </div>
+                      <div className="confidence-pill">
+                        <Sparkles size={15} />
+                        {formatPercent(draft.extraction.confidence)} extraction
+                      </div>
+                    </div>
+                    <InvoiceDocumentPreview invoiceId={draft.id} />
+                    <div className="document-footer">
+                      <span><Bot size={14} /> {topSuggestion ? `${topSuggestion.glCode} suggested` : "Awaiting GL signal"}</span>
+                      <span><ShieldCheck size={14} /> {draft.warnings.length === 0 ? "Ready to finalize" : `${draft.warnings.length} review note${draft.warnings.length === 1 ? "" : "s"}`}</span>
+                    </div>
                   </div>
-                  <aside className="review-panel">
+                  <aside className="review-panel approval-cockpit">
                     <div className="panel-heading">
-                      <h2>Review</h2>
-                      <span>{Math.round(draft.extraction.confidence * 100)}% extraction</span>
+                      <div>
+                        <span>Approval Cockpit</span>
+                        <h2>{draft.extraction.vendorName || "Unidentified vendor"}</h2>
+                      </div>
+                      <BadgeCheck size={22} />
                     </div>
 
                     {draft.warnings.length > 0 && (
@@ -302,14 +391,29 @@ function App() {
                       </div>
                     )}
 
-                    <label>
-                      Vendor
-                      <input value={draft.extraction.vendorName} onChange={(event) => updateExtraction("vendorName", event.target.value)} />
-                    </label>
-                    <label>
-                      Invoice #
-                      <input value={draft.extraction.invoiceNumber} onChange={(event) => updateExtraction("invoiceNumber", event.target.value)} />
-                    </label>
+                    <div className="signal-strip">
+                      <div>
+                        <Activity size={16} />
+                        <span>Balance</span>
+                        <strong>{amountBalance === null ? "Open" : amountBalance === 0 ? "Exact" : formatMoney(amountBalance)}</strong>
+                      </div>
+                      <div>
+                        <CircleDollarSign size={16} />
+                        <span>Total</span>
+                        <strong>{formatMoney(draft.extraction.totalAmount)}</strong>
+                      </div>
+                    </div>
+
+                    <section className="extraction-fields">
+                      <label>
+                        Vendor
+                        <input value={draft.extraction.vendorName} onChange={(event) => updateExtraction("vendorName", event.target.value)} />
+                      </label>
+                      <label>
+                        Invoice #
+                        <input value={draft.extraction.invoiceNumber} onChange={(event) => updateExtraction("invoiceNumber", event.target.value)} />
+                      </label>
+                    </section>
                     <div className="field-grid">
                       <label>
                         Date
@@ -327,7 +431,7 @@ function App() {
                     </div>
 
                     <div className="suggestions">
-                      <h3><Wand2 size={16} /> Suggestions</h3>
+                      <h3><Wand2 size={16} /> GL Suggestions</h3>
                       {draft.glSuggestions.slice(0, 3).map((suggestion) => (
                         <button
                           key={suggestion.glCode}
@@ -351,7 +455,7 @@ function App() {
                     </div>
 
                     <div className="split-lines">
-                      <h3>GL Lines</h3>
+                      <h3><ClipboardCheck size={16} /> Coding Lines</h3>
                       {[0, 1, 2].map((index) => (
                         <div className="split-row" key={index}>
                           <select value={draft.glLines[index]?.glCode || ""} onChange={(event) => applyGlSelection(index, event.target.value)}>
@@ -405,7 +509,7 @@ function App() {
         )}
 
         {view === "library" && (
-          <section className="library-list">
+          <section className="library-list vault-list">
             {finalizedInvoices.map((invoice) => (
               <article key={invoice.id} className="library-row">
                 <div>
@@ -421,7 +525,7 @@ function App() {
         )}
 
         {view === "gl" && (
-          <section className="gl-surface">
+          <section className="gl-surface intelligence-table">
             <div className="toolbar">
               <label className="import-button">
                 <UploadCloud size={18} /> Import CSV/XLSX
@@ -455,7 +559,7 @@ function App() {
         )}
 
         {view === "settings" && (
-          <section className="settings-surface">
+          <section className="settings-surface controls-surface">
             <label>
               GM Approved Initials
               <input value={settings.gmInitials} onChange={(event) => setSettings({ ...settings, gmInitials: event.target.value })} />
@@ -478,6 +582,94 @@ function App() {
         )}
       </section>
     </main>
+  );
+}
+
+function InvoiceDocumentPreview({ invoiceId }: { invoiceId: string }) {
+  const frameRef = useRef<HTMLDivElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [pdfDoc, setPdfDoc] = useState<PDFDocumentProxy | null>(null);
+  const [frameWidth, setFrameWidth] = useState(0);
+  const [loadError, setLoadError] = useState("");
+
+  useEffect(() => {
+    const frame = frameRef.current;
+    if (!frame) return;
+
+    const updateWidth = () => setFrameWidth(frame.clientWidth);
+    updateWidth();
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(frame);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setPdfDoc(null);
+    setLoadError("");
+
+    const task = getDocument(`/api/invoices/${invoiceId}/original.pdf`);
+    task.promise
+      .then((document) => {
+        if (!cancelled) setPdfDoc(document);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setLoadError(error instanceof Error ? error.message : "PDF preview failed to load.");
+      });
+
+    return () => {
+      cancelled = true;
+      void task.destroy();
+    };
+  }, [invoiceId]);
+
+  useEffect(() => {
+    if (!pdfDoc || !canvasRef.current || frameWidth <= 0) return;
+
+    let cancelled = false;
+    let renderTask: { cancel: () => void; promise: Promise<unknown> } | null = null;
+
+    async function renderFirstPage() {
+      const canvas = canvasRef.current;
+      if (!canvas || !pdfDoc) return;
+
+      const page = await pdfDoc.getPage(1);
+      if (cancelled) return;
+      const baseViewport = page.getViewport({ scale: 1 });
+      const targetWidth = clamp(frameWidth - 32, 260, 620);
+      const scale = clamp(targetWidth / baseViewport.width, 0.38, 0.92);
+      const viewport = page.getViewport({ scale });
+      const context = canvas.getContext("2d");
+      if (!context) return;
+
+      const outputScale = window.devicePixelRatio || 1;
+      canvas.width = Math.floor(viewport.width * outputScale);
+      canvas.height = Math.floor(viewport.height * outputScale);
+      canvas.style.width = `${viewport.width}px`;
+      canvas.style.height = `${viewport.height}px`;
+      context.clearRect(0, 0, canvas.width, canvas.height);
+
+      renderTask = page.render({
+        canvas,
+        canvasContext: context,
+        viewport,
+        transform: outputScale === 1 ? undefined : [outputScale, 0, 0, outputScale, 0, 0]
+      });
+      await renderTask.promise.catch(() => undefined);
+    }
+
+    void renderFirstPage();
+
+    return () => {
+      cancelled = true;
+      renderTask?.cancel();
+    };
+  }, [pdfDoc, frameWidth]);
+
+  return (
+    <div className="source-preview-frame" ref={frameRef}>
+      {loadError ? <div className="preview-error">{loadError}</div> : <canvas ref={canvasRef} />}
+    </div>
   );
 }
 
