@@ -1,12 +1,28 @@
 import type { GlCode, GlImportReport, InvoiceRecord, StampSettings } from "./types";
 
+export class ApiError extends Error {
+  status: number;
+  body: unknown;
+
+  constructor(message: string, status: number, body: unknown) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.body = body;
+  }
+}
+
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, options);
+  const body = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new Error(body.error || `Request failed: ${response.status}`);
+    const message =
+      body && typeof body === "object" && "error" in body && typeof body.error === "string"
+        ? body.error
+        : `Request failed: ${response.status}`;
+    throw new ApiError(message, response.status, body);
   }
-  return response.json() as Promise<T>;
+  return body as T;
 }
 
 export function fetchConfig(): Promise<{ settings: StampSettings; hasOpenAiKey: boolean }> {

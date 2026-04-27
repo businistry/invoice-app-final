@@ -567,6 +567,20 @@ a {
   background: #fbf9f2;
 }
 
+.signal-strip > .signal-ok {
+  border-color: #c8ded6;
+  background: #f0f8f4;
+}
+
+.signal-strip > .signal-warning {
+  border-color: #e1c7a4;
+  background: #fff6e8;
+}
+
+.signal-strip > .signal-warning strong {
+  color: #8a4d12;
+}
+
 .signal-strip svg {
   color: var(--blue);
 }
@@ -672,6 +686,44 @@ select:focus {
 .line-total strong {
   color: var(--ink);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.validation-card {
+  display: grid;
+  gap: 7px;
+  border: 1px solid #e1c7a4;
+  border-radius: 12px;
+  margin-top: 8px;
+  padding: 10px;
+  background: #fff6e8;
+}
+
+.validation-card strong {
+  color: #7a430e;
+  font-size: 13px;
+}
+
+.validation-card span {
+  color: #80501e;
+  font-size: 12px;
+}
+
+.mini-action {
+  width: max-content;
+  max-width: 100%;
+  border: 1px solid #d8b47e;
+  border-radius: 999px;
+  margin-top: 2px;
+  padding: 7px 10px;
+  color: #6d3e10;
+  background: #fffdf8;
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.mini-action:hover {
+  border-color: #b78b45;
+  color: #4d2d0d;
 }
 
 .stamp-preview-frame {

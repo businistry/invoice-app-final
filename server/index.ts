@@ -54,6 +54,17 @@ function moneyTotal(lines: InvoiceGlLine[]): number {
   return Number(lines.reduce((sum, line) => sum + Number(line.amount || 0), 0).toFixed(2));
 }
 
+function activeGlLines(lines: InvoiceGlLine[]): InvoiceGlLine[] {
+  return lines
+    .filter((line) => line.glCode.trim() || typeof line.amount === "number")
+    .slice(0, 3)
+    .map((line) => ({
+      ...line,
+      glCode: line.glCode.trim(),
+      description: line.description.trim()
+    }));
+}
+
 function defaultPlacement(): StampPlacement {
   return { pageIndex: 0, x: 44, y: 44, width: 380, height: 128 };
 }
@@ -76,12 +87,16 @@ function initialGlLines(invoice: InvoiceRecord): InvoiceGlLine[] {
 
 function validationWarnings(invoice: InvoiceRecord): string[] {
   const warnings: string[] = [];
-  if (!invoice.extraction.vendorName) warnings.push("Vendor name is missing.");
-  if (!invoice.extraction.invoiceNumber) warnings.push("Invoice number is missing.");
+  const stampLines = activeGlLines(invoice.glLines);
+  if (!invoice.extraction.vendorName.trim()) warnings.push("Vendor name is missing.");
+  if (!invoice.extraction.invoiceNumber.trim()) warnings.push("Invoice number is missing.");
   if (typeof invoice.extraction.totalAmount !== "number") warnings.push("Invoice total is missing.");
-  if (invoice.glLines.length === 0) warnings.push("No GL line is selected.");
-  if (invoice.glLines.length > 3) warnings.push("Only three GL lines can be stamped.");
-  if (typeof invoice.extraction.totalAmount === "number" && moneyTotal(invoice.glLines) !== Number(invoice.extraction.totalAmount.toFixed(2))) {
+  if (stampLines.length === 0) warnings.push("No GL line is selected.");
+  if (stampLines.some((line) => !line.glCode)) warnings.push("Every GL line needs a GL code.");
+  if (stampLines.some((line) => typeof line.amount !== "number" || !Number.isFinite(line.amount))) {
+    warnings.push("Every GL line needs an amount.");
+  }
+  if (typeof invoice.extraction.totalAmount === "number" && moneyTotal(stampLines) !== Number(invoice.extraction.totalAmount.toFixed(2))) {
     warnings.push("GL line amounts must equal the invoice total.");
   }
   return warnings;
@@ -119,9 +134,11 @@ async function finalizeInvoice(invoice: InvoiceRecord): Promise<InvoiceRecord> {
   if (warnings.length > 0) {
     invoice.status = "needs_review";
     invoice.warnings = displayWarnings(invoice);
+    invoice.glLines = activeGlLines(invoice.glLines);
     return updateInvoice(invoice);
   }
 
+  invoice.glLines = activeGlLines(invoice.glLines);
   const desiredName = buildFinalPdfName(invoice.extraction.vendorName, invoice.extraction.invoiceNumber);
   const target = uniqueFilePath(finalizedDir, desiredName);
   await stampPdf({

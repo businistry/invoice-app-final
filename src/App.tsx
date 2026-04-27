@@ -26,6 +26,7 @@ import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy } from "pdfjs-d
 import pdfWorker from "pdfjs-dist/build/pdf.worker.mjs?url";
 import { ChangeEvent, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
+  ApiError,
   fetchConfig,
   fetchGlCodes,
   fetchInvoices,
@@ -64,6 +65,44 @@ function cloneInvoice(invoice: InvoiceRecord): InvoiceRecord {
 
 function sumLines(lines: InvoiceGlLine[]): number {
   return Number(lines.reduce((sum, line) => sum + Number(line.amount || 0), 0).toFixed(2));
+}
+
+function activeGlLines(lines: InvoiceGlLine[]): InvoiceGlLine[] {
+  return lines.filter((line) => line.glCode.trim() || typeof line.amount === "number");
+}
+
+function validationWarningsForDraft(invoice: InvoiceRecord): string[] {
+  const warnings: string[] = [];
+  const stampLines = activeGlLines(invoice.glLines);
+  if (!invoice.extraction.vendorName.trim()) warnings.push("Vendor name is missing.");
+  if (!invoice.extraction.invoiceNumber.trim()) warnings.push("Invoice number is missing.");
+  if (typeof invoice.extraction.totalAmount !== "number" || !Number.isFinite(invoice.extraction.totalAmount)) {
+    warnings.push("Invoice total is missing.");
+  }
+  if (stampLines.length === 0) warnings.push("No GL line is selected.");
+  if (stampLines.some((line) => !line.glCode.trim())) warnings.push("Every GL line needs a GL code.");
+  if (stampLines.some((line) => typeof line.amount !== "number" || !Number.isFinite(line.amount))) {
+    warnings.push("Every GL line needs an amount.");
+  }
+  if (
+    typeof invoice.extraction.totalAmount === "number" &&
+    Number.isFinite(invoice.extraction.totalAmount) &&
+    sumLines(stampLines) !== Number(invoice.extraction.totalAmount.toFixed(2))
+  ) {
+    warnings.push("GL line amounts must equal the invoice total.");
+  }
+  return warnings;
+}
+
+function isInvoiceRecord(value: unknown): value is InvoiceRecord {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      "id" in value &&
+      "extraction" in value &&
+      "glLines" in value &&
+      "warnings" in value
+  );
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -152,12 +191,27 @@ function App() {
     setMessage("Stamping PDF...");
     try {
       const saved = await updateInvoice(draft);
+      const blockers = validationWarningsForDraft(saved);
+      if (blockers.length > 0) {
+        setInvoices((current) => current.map((invoice) => (invoice.id === saved.id ? saved : invoice)));
+        setDraft(cloneInvoice(saved));
+        setMessage(`Cannot finalize yet: ${blockers.join(" ")}`);
+        return;
+      }
+
       const finalized = await finalizeInvoice(saved.id);
       setInvoices((current) => current.map((invoice) => (invoice.id === finalized.id ? finalized : invoice)));
       setDraft(cloneInvoice(finalized));
       setMessage(finalized.finalFileName ? `Finalized ${finalized.finalFileName}` : "Invoice needs review.");
       setView(finalized.finalFileName ? "library" : "queue");
     } catch (error) {
+      if (error instanceof ApiError && isInvoiceRecord(error.body)) {
+        const blockedInvoice = error.body;
+        setInvoices((current) => current.map((invoice) => (invoice.id === blockedInvoice.id ? blockedInvoice : invoice)));
+        setDraft(cloneInvoice(blockedInvoice));
+        setMessage(`Cannot finalize yet: ${blockedInvoice.warnings.join(" ")}`);
+        return;
+      }
       if (error instanceof Error) setMessage(error.message);
     } finally {
       setBusy(false);
@@ -251,6 +305,14 @@ function App() {
     draft && typeof draft.extraction.totalAmount === "number"
       ? Number((draft.extraction.totalAmount - draftLineTotal).toFixed(2))
       : null;
+  const finalizeBlockers = draft ? validationWarningsForDraft(draft) : [];
+  const firstActiveLineIndex = draft ? draft.glLines.findIndex((line) => line.glCode.trim() || typeof line.amount === "number") : -1;
+  const canSetSingleLineTotal =
+    Boolean(draft) &&
+    typeof draft?.extraction.totalAmount === "number" &&
+    activeGlLines(draft.glLines).length === 1 &&
+    firstActiveLineIndex >= 0 &&
+    amountBalance !== 0;
 
   return (
     <main className="app-shell intelligence-shell">
@@ -392,7 +454,7 @@ function App() {
                     )}
 
                     <div className="signal-strip">
-                      <div>
+                      <div className={amountBalance === 0 ? "signal-ok" : "signal-warning"}>
                         <Activity size={16} />
                         <span>Balance</span>
                         <strong>{amountBalance === null ? "Open" : amountBalance === 0 ? "Exact" : formatMoney(amountBalance)}</strong>
@@ -479,6 +541,19 @@ function App() {
                         <span>Line total</span>
                         <strong>{formatMoney(sumLines(draft.glLines))}</strong>
                       </div>
+                      {finalizeBlockers.length > 0 && (
+                        <div className="validation-card">
+                          <strong>Finish these before finalizing</strong>
+                          {finalizeBlockers.map((warning) => (
+                            <span key={warning}>{warning}</span>
+                          ))}
+                          {canSetSingleLineTotal && (
+                            <button type="button" className="mini-action" onClick={() => updateGlLine(firstActiveLineIndex, { amount: draft.extraction.totalAmount })}>
+                              Set GL line to {formatMoney(draft.extraction.totalAmount)}
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     <PdfStampPlacementEditor
@@ -489,7 +564,12 @@ function App() {
 
                     <div className="actions">
                       <button onClick={saveDraft} disabled={busy}>Save</button>
-                      <button className="primary" onClick={handleFinalize} disabled={busy}>
+                      <button
+                        className="primary"
+                        onClick={handleFinalize}
+                        disabled={busy || finalizeBlockers.length > 0}
+                        title={finalizeBlockers.length > 0 ? finalizeBlockers.join(" ") : undefined}
+                      >
                         <CheckCircle2 size={18} /> Finalize PDF
                       </button>
                     </div>
