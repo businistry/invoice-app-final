@@ -73,5 +73,5 @@ Open an invoice from the queue and use the **Stamp Placement** preview in the re
 
 - Drag the stamp box directly on the page preview.
 - Use **Bottom left**, **Bottom right**, **Bottom center**, **Top left**, or **Top right** for quick placement.
-- Use **Small**, **Standard**, or **Large** to resize the stamp.
+- Use **Tiny**, **Small**, **Standard**, or **Large** to resize the stamp.
 - The advanced coordinates are available only for troubleshooting; normal users should not need them.

@@ -39,6 +39,7 @@ import {
 import type { GlCode, GlImportReport, InvoiceGlLine, InvoiceRecord, StampSettings } from "./types";
 
 type View = "queue" | "library" | "gl" | "settings";
+type InvoiceFilter = "all" | "pending" | "finalized";
 type PageRenderInfo = { width: number; height: number; scale: number };
 
 GlobalWorkerOptions.workerSrc = pdfWorker;
@@ -109,8 +110,17 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
+function isPendingInvoice(invoice: InvoiceRecord): boolean {
+  return invoice.status === "needs_review" || invoice.status === "error";
+}
+
+function isFinalizedInvoice(invoice: InvoiceRecord): boolean {
+  return Boolean(invoice.finalFileName);
+}
+
 function App() {
   const [view, setView] = useState<View>("queue");
+  const [invoiceFilter, setInvoiceFilter] = useState<InvoiceFilter>("all");
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
   const [glCodes, setGlCodes] = useState<GlCode[]>([]);
   const [reports, setReports] = useState<GlImportReport[]>([]);
@@ -141,8 +151,16 @@ function App() {
     setDraft(selected ? cloneInvoice(selected) : null);
   }, [selectedId, invoices]);
 
-  const queueInvoices = invoices.filter((invoice) => invoice.status === "needs_review" || invoice.status === "error");
-  const finalizedInvoices = invoices.filter((invoice) => invoice.finalFileName);
+  const queueInvoices = invoices.filter(isPendingInvoice);
+  const finalizedInvoices = invoices.filter(isFinalizedInvoice);
+  const displayedInvoices =
+    invoiceFilter === "pending" ? queueInvoices : invoiceFilter === "finalized" ? finalizedInvoices : invoices;
+  const displayedInvoiceCountLabel =
+    invoiceFilter === "pending"
+      ? `${queueInvoices.length} pending`
+      : invoiceFilter === "finalized"
+        ? `${finalizedInvoices.length} finalized`
+        : `${invoices.length} total`;
   const filteredGlCodes = useMemo(() => {
     const query = glSearch.trim().toLowerCase();
     if (!query) return glCodes;
@@ -289,6 +307,13 @@ function App() {
     });
   }
 
+  function showInvoiceFilter(filter: InvoiceFilter, nextView: View = "queue") {
+    const nextInvoices = filter === "pending" ? queueInvoices : filter === "finalized" ? finalizedInvoices : invoices;
+    setInvoiceFilter(filter);
+    setView(nextView);
+    setSelectedId(nextInvoices[0]?.id || "");
+  }
+
   const activeViewTitle =
     view === "queue" ? "Invoice Command" : view === "library" ? "Finalized Vault" : view === "gl" ? "GL Intelligence" : "Control Surface";
   const activeViewSubtitle =
@@ -327,7 +352,7 @@ function App() {
           </div>
         </div>
         <nav aria-label="Primary workspace">
-          <button className={view === "queue" ? "active" : ""} onClick={() => setView("queue")}>
+          <button className={view === "queue" ? "active" : ""} onClick={() => showInvoiceFilter("all")}>
             <ReceiptText size={18} /> Command
           </button>
           <button className={view === "library" ? "active" : ""} onClick={() => setView("library")}>
@@ -342,8 +367,12 @@ function App() {
         </nav>
         <div className="rail-status">
           <span>STLMO</span>
-          <strong>{queueInvoices.length} pending</strong>
-          <em>{finalizedInvoices.length} finalized documents</em>
+          <button type="button" onClick={() => showInvoiceFilter("pending")}>
+            <strong>{queueInvoices.length} pending</strong>
+          </button>
+          <button type="button" onClick={() => showInvoiceFilter("finalized", "library")}>
+            <em>{finalizedInvoices.length} finalized documents</em>
+          </button>
         </div>
       </aside>
 
@@ -355,17 +384,25 @@ function App() {
             <p>{activeViewSubtitle}</p>
           </div>
           <div className="topbar-metrics">
-            <div>
+            <button
+              type="button"
+              className={`metric-card ${view === "queue" && invoiceFilter === "pending" ? "active" : ""}`}
+              onClick={() => showInvoiceFilter("pending")}
+            >
               <Clock3 size={16} />
               <span>{queueInvoices.length}</span>
               <small>pending</small>
-            </div>
-            <div>
+            </button>
+            <button
+              type="button"
+              className={`metric-card ${view === "library" ? "active" : ""}`}
+              onClick={() => showInvoiceFilter("finalized", "library")}
+            >
               <FileStack size={16} />
               <span>{finalizedInvoices.length}</span>
               <small>finalized</small>
-            </div>
-            <div>
+            </button>
+            <div className="metric-card">
               <Gauge size={16} />
               <span>{glCodes.length}</span>
               <small>GL signals</small>
@@ -384,7 +421,7 @@ function App() {
                   <span>Intake</span>
                   <h2>Invoice Queue</h2>
                 </div>
-                <em>{invoices.length} total</em>
+                <em>{displayedInvoiceCountLabel}</em>
               </div>
               <label className="upload-zone elevated-upload">
                 <UploadCloud size={24} />
@@ -393,13 +430,34 @@ function App() {
               </label>
 
               <div className="queue-filters">
-                <span className="active-filter">All</span>
-                <span>Review</span>
-                <span>Final</span>
+                <button
+                  type="button"
+                  className={invoiceFilter === "all" ? "active-filter" : ""}
+                  onClick={() => showInvoiceFilter("all")}
+                  aria-pressed={invoiceFilter === "all"}
+                >
+                  All
+                </button>
+                <button
+                  type="button"
+                  className={invoiceFilter === "pending" ? "active-filter" : ""}
+                  onClick={() => showInvoiceFilter("pending")}
+                  aria-pressed={invoiceFilter === "pending"}
+                >
+                  Review
+                </button>
+                <button
+                  type="button"
+                  className={invoiceFilter === "finalized" ? "active-filter" : ""}
+                  onClick={() => showInvoiceFilter("finalized")}
+                  aria-pressed={invoiceFilter === "finalized"}
+                >
+                  Final
+                </button>
               </div>
 
               <div className="invoice-list">
-                {invoices.map((invoice) => (
+                {displayedInvoices.map((invoice) => (
                   <button
                     key={invoice.id}
                     className={`invoice-row ${selectedId === invoice.id ? "selected" : ""}`}
@@ -413,6 +471,15 @@ function App() {
                     <em className={`status ${invoice.status}`}>{statusLabel(invoice.status)}</em>
                   </button>
                 ))}
+                {displayedInvoices.length === 0 && (
+                  <div className="list-empty">
+                    {invoiceFilter === "pending"
+                      ? "No pending invoices."
+                      : invoiceFilter === "finalized"
+                        ? "No finalized invoices."
+                        : "No invoices yet."}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -841,8 +908,8 @@ function PdfStampPlacementEditor({
 
   const normalizedPlacement = (next: InvoiceRecord["stampPlacement"]): InvoiceRecord["stampPlacement"] => {
     if (!pageInfo) return next;
-    const width = clamp(next.width, 300, Math.max(300, pageInfo.width - 24));
-    const height = clamp(next.height, 108, Math.max(108, pageInfo.height - 24));
+    const width = clamp(next.width, 240, Math.max(240, pageInfo.width - 24));
+    const height = clamp(next.height, 84, Math.max(84, pageInfo.height - 24));
 
     return {
       pageIndex: clamp(next.pageIndex, 0, Math.max((pdfDoc?.numPages || 1) - 1, 0)),
@@ -959,6 +1026,7 @@ function PdfStampPlacementEditor({
       </div>
 
       <div className="placement-controls compact-controls">
+        <button type="button" onClick={() => setStampSize(260, 92)}>Tiny</button>
         <button type="button" onClick={() => setStampSize(320, 110)}>Small</button>
         <button type="button" onClick={() => setStampSize(380, 128)}>Standard</button>
         <button type="button" onClick={() => setStampSize(440, 148)}>Large</button>

@@ -110,7 +110,7 @@ a {
   gap: 7px;
 }
 
-.sidebar button {
+.sidebar nav button {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -123,14 +123,14 @@ a {
   text-align: left;
 }
 
-.sidebar button:hover,
-.sidebar button.active {
+.sidebar nav button:hover,
+.sidebar nav button.active {
   border-color: rgba(212, 196, 156, 0.16);
   background: rgba(255, 255, 255, 0.07);
   color: #ffffff;
 }
 
-.sidebar button.active {
+.sidebar nav button.active {
   box-shadow: inset 3px 0 0 #d2b16c;
 }
 
@@ -158,6 +158,27 @@ a {
 .rail-status strong,
 .rail-status em {
   display: block;
+}
+
+.rail-status button {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-radius: 8px;
+  margin-top: 6px;
+  padding: 6px 8px;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+}
+
+.rail-status button:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.rail-status button strong,
+.rail-status button em {
+  margin-top: 0;
 }
 
 .rail-status strong {
@@ -207,7 +228,7 @@ a {
   align-items: stretch;
 }
 
-.topbar-metrics > div {
+.metric-card {
   display: grid;
   gap: 5px;
   min-width: 92px;
@@ -216,6 +237,14 @@ a {
   padding: 11px;
   background: rgba(255, 253, 248, 0.72);
   box-shadow: var(--soft-shadow);
+  text-align: left;
+}
+
+button.metric-card:hover,
+.metric-card.active {
+  border-color: #8bb3a8;
+  background: #f3fbf7;
+  color: var(--emerald);
 }
 
 .topbar-metrics svg {
@@ -332,7 +361,7 @@ a {
   margin: 14px 0 10px;
 }
 
-.queue-filters span {
+.queue-filters button {
   border: 1px solid var(--line);
   border-radius: 999px;
   padding: 7px 8px;
@@ -355,6 +384,17 @@ a {
   max-height: calc(100vh - 350px);
   overflow: auto;
   padding-right: 2px;
+}
+
+.list-empty {
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  padding: 14px;
+  color: var(--muted);
+  background: #fffdf8;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 720;
 }
 
 .invoice-row {
@@ -808,7 +848,7 @@ select:focus {
 }
 
 .compact-controls {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .stamp-advanced summary {
@@ -1039,7 +1079,7 @@ button:disabled {
     width: 100%;
   }
 
-  .sidebar button {
+  .sidebar nav button {
     justify-content: center;
     min-width: 0;
   }

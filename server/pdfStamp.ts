@@ -35,8 +35,8 @@ export async function stampPdf(input: StampPdfInput): Promise<void> {
   const pageSize = page.getSize();
   const helvetica = await document.embedFont(StandardFonts.Helvetica);
 
-  const width = clamp(input.placement.width, 300, pageSize.width - 24);
-  const height = clamp(input.placement.height, 108, pageSize.height - 24);
+  const width = clamp(input.placement.width, 240, pageSize.width - 24);
+  const height = clamp(input.placement.height, 84, pageSize.height - 24);
   const x = clamp(input.placement.x, 12, pageSize.width - width - 12);
   const y = clamp(input.placement.y, 12, pageSize.height - height - 12);
   const fontSize = clamp(width / 48, 7.5, 11.5);
