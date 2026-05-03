@@ -29,6 +29,13 @@ Copy `.env.example` to `.env` if you want to set:
 - `OPENAI_MODEL`: defaults to `gpt-5-mini`.
 - `GM_INITIALS`: default initials used on the stamp.
 - `GL_SEED_PATH`: CSV path used to seed GL codes when the local database is empty.
+- `GOOGLE_APPLICATION_CREDENTIALS`: path to a Google service account JSON file for Drive uploads.
+- `GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON`: alternative to `GOOGLE_APPLICATION_CREDENTIALS`; accepts the JSON string or base64 JSON.
+- `GOOGLE_OAUTH_CLIENT_ID`: OAuth client ID for uploading to a regular My Drive folder as your Google user.
+- `GOOGLE_OAUTH_CLIENT_SECRET`: OAuth client secret for uploading to a regular My Drive folder as your Google user.
+- `GOOGLE_OAUTH_REDIRECT_URI`: defaults to `http://localhost:3001/api/google/oauth/callback`.
+- `GOOGLE_DRIVE_FOLDER_ID`: default Drive folder ID for finalized PDFs.
+- `GOOGLE_DRIVE_AUTO_UPLOAD`: set to `true` to send PDFs to Drive as soon as they finalize.
 
 Without an OpenAI key, uploads still work, but extraction falls back to filename-based demo parsing and will usually require manual review.
 
@@ -41,9 +48,21 @@ HOST=0.0.0.0
 OPENAI_API_KEY=sk-your-key-here
 OPENAI_MODEL=gpt-5-mini
 GM_INITIALS=TC
+GOOGLE_APPLICATION_CREDENTIALS=/Users/t.curry/.config/invoice-drive-service-account.json
+GOOGLE_OAUTH_CLIENT_ID=your-oauth-client-id
+GOOGLE_OAUTH_CLIENT_SECRET=your-oauth-client-secret
+GOOGLE_OAUTH_REDIRECT_URI=http://localhost:3001/api/google/oauth/callback
+GOOGLE_DRIVE_FOLDER_ID=your-drive-folder-id
+GOOGLE_DRIVE_AUTO_UPLOAD=false
 ```
 
 Restart the server after changing `.env`. Keep `.env` private; it is ignored by git and should not be uploaded or emailed.
+
+## Google Drive Uploads
+
+For regular My Drive folders, use OAuth so uploads count against your own Google Drive storage. Create an OAuth client in Google Cloud, add `http://localhost:3001/api/google/oauth/callback` as an authorized redirect URI, set `GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET`, restart the app, then use **Controls → Connect Google Drive**.
+
+Service accounts still work for shared drives. Google service accounts can't own files in regular My Drive folders, so a normal folder upload needs OAuth instead.
 
 ## Windows PC Access
 

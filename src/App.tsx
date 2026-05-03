@@ -7,8 +7,10 @@ import {
   CircleDollarSign,
   ClipboardCheck,
   Clock3,
+  CloudUpload,
   Command,
   Download,
+  ExternalLink,
   FileStack,
   FileText,
   Gauge,
@@ -19,6 +21,7 @@ import {
   ShieldCheck,
   Sparkles,
   Table2,
+  Trash2,
   UploadCloud,
   Wand2
 } from "lucide-react";
@@ -27,12 +30,14 @@ import pdfWorker from "pdfjs-dist/build/pdf.worker.mjs?url";
 import { ChangeEvent, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   ApiError,
+  deleteInvoice,
   fetchConfig,
   fetchGlCodes,
   fetchInvoices,
   finalizeInvoice,
   importGlCodes,
   saveStampSettings,
+  sendInvoiceToDrive,
   updateInvoice,
   uploadInvoices
 } from "./api";
@@ -44,7 +49,12 @@ type PageRenderInfo = { width: number; height: number; scale: number };
 
 GlobalWorkerOptions.workerSrc = pdfWorker;
 
-const emptySettings: StampSettings = { gmInitials: "TC", autoConfidenceThreshold: 0.72 };
+const emptySettings: StampSettings = {
+  gmInitials: "TC",
+  autoConfidenceThreshold: 0.72,
+  googleDriveFolderId: "",
+  uploadFinalizedToDrive: false
+};
 
 function formatMoney(value: number | null | undefined): string {
   if (typeof value !== "number" || !Number.isFinite(value)) return "";
@@ -118,6 +128,12 @@ function isFinalizedInvoice(invoice: InvoiceRecord): boolean {
   return Boolean(invoice.finalFileName);
 }
 
+function invoicesForFilter(invoices: InvoiceRecord[], filter: InvoiceFilter): InvoiceRecord[] {
+  if (filter === "pending") return invoices.filter(isPendingInvoice);
+  if (filter === "finalized") return invoices.filter(isFinalizedInvoice);
+  return invoices;
+}
+
 function App() {
   const [view, setView] = useState<View>("queue");
   const [invoiceFilter, setInvoiceFilter] = useState<InvoiceFilter>("all");
@@ -126,6 +142,11 @@ function App() {
   const [reports, setReports] = useState<GlImportReport[]>([]);
   const [settings, setSettings] = useState<StampSettings>(emptySettings);
   const [hasOpenAiKey, setHasOpenAiKey] = useState(false);
+  const [hasGoogleDriveCredentials, setHasGoogleDriveCredentials] = useState(false);
+  const [googleDriveServiceAccountEmail, setGoogleDriveServiceAccountEmail] = useState("");
+  const [hasGoogleDriveOAuthCredentials, setHasGoogleDriveOAuthCredentials] = useState(false);
+  const [hasGoogleDriveOAuthToken, setHasGoogleDriveOAuthToken] = useState(false);
+  const [googleDriveAuthUrl, setGoogleDriveAuthUrl] = useState("");
   const [selectedId, setSelectedId] = useState<string>("");
   const [draft, setDraft] = useState<InvoiceRecord | null>(null);
   const [busy, setBusy] = useState(false);
@@ -136,6 +157,11 @@ function App() {
     const [config, invoiceData, glData] = await Promise.all([fetchConfig(), fetchInvoices(), fetchGlCodes()]);
     setSettings(config.settings);
     setHasOpenAiKey(config.hasOpenAiKey);
+    setHasGoogleDriveCredentials(config.hasGoogleDriveCredentials);
+    setGoogleDriveServiceAccountEmail(config.googleDriveServiceAccountEmail);
+    setHasGoogleDriveOAuthCredentials(config.hasGoogleDriveOAuthCredentials);
+    setHasGoogleDriveOAuthToken(config.hasGoogleDriveOAuthToken);
+    setGoogleDriveAuthUrl(config.googleDriveAuthUrl);
     setInvoices(invoiceData.invoices);
     setGlCodes(glData.glCodes);
     setReports(glData.importReports);
@@ -153,8 +179,7 @@ function App() {
 
   const queueInvoices = invoices.filter(isPendingInvoice);
   const finalizedInvoices = invoices.filter(isFinalizedInvoice);
-  const displayedInvoices =
-    invoiceFilter === "pending" ? queueInvoices : invoiceFilter === "finalized" ? finalizedInvoices : invoices;
+  const displayedInvoices = invoicesForFilter(invoices, invoiceFilter);
   const displayedInvoiceCountLabel =
     invoiceFilter === "pending"
       ? `${queueInvoices.length} pending`
@@ -220,7 +245,12 @@ function App() {
       const finalized = await finalizeInvoice(saved.id);
       setInvoices((current) => current.map((invoice) => (invoice.id === finalized.id ? finalized : invoice)));
       setDraft(cloneInvoice(finalized));
-      setMessage(finalized.finalFileName ? `Finalized ${finalized.finalFileName}` : "Invoice needs review.");
+      const driveMessage = finalized.driveUploadError
+        ? ` Drive upload needs attention: ${finalized.driveUploadError}`
+        : finalized.driveUploadedAt
+          ? " Sent to Google Drive."
+          : "";
+      setMessage(finalized.finalFileName ? `Finalized ${finalized.finalFileName}.${driveMessage}` : "Invoice needs review.");
       setView(finalized.finalFileName ? "library" : "queue");
     } catch (error) {
       if (error instanceof ApiError && isInvoiceRecord(error.body)) {
@@ -261,6 +291,43 @@ function App() {
       setMessage("Stamp settings saved.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Settings save failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleSendToDrive(invoice: InvoiceRecord) {
+    setBusy(true);
+    setMessage("Sending PDF to Google Drive...");
+    try {
+      const updated = await sendInvoiceToDrive(invoice.id);
+      setInvoices((current) => current.map((record) => (record.id === updated.id ? updated : record)));
+      if (selectedId === updated.id) setDraft(cloneInvoice(updated));
+      setMessage(
+        updated.driveUploadError
+          ? `Drive upload needs attention: ${updated.driveUploadError}`
+          : `Sent ${updated.driveFileName || updated.finalFileName || "PDF"} to Google Drive.`
+      );
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Google Drive upload failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDeleteInvoice(invoice: InvoiceRecord) {
+    const fileName = invoice.finalFileName || invoice.originalName;
+    if (!window.confirm(`Delete ${fileName}? This removes the invoice record and local PDF files.`)) return;
+
+    setBusy(true);
+    try {
+      await deleteInvoice(invoice.id);
+      const remaining = invoices.filter((record) => record.id !== invoice.id);
+      setInvoices(remaining);
+      if (selectedId === invoice.id) setSelectedId(invoicesForFilter(remaining, invoiceFilter)[0]?.id || "");
+      setMessage(`Deleted ${fileName}.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Delete failed");
     } finally {
       setBusy(false);
     }
@@ -308,7 +375,7 @@ function App() {
   }
 
   function showInvoiceFilter(filter: InvoiceFilter, nextView: View = "queue") {
-    const nextInvoices = filter === "pending" ? queueInvoices : filter === "finalized" ? finalizedInvoices : invoices;
+    const nextInvoices = invoicesForFilter(invoices, filter);
     setInvoiceFilter(filter);
     setView(nextView);
     setSelectedId(nextInvoices[0]?.id || "");
@@ -631,6 +698,9 @@ function App() {
 
                     <div className="actions">
                       <button onClick={saveDraft} disabled={busy}>Save</button>
+                      <button className="danger-action" onClick={() => handleDeleteInvoice(draft)} disabled={busy}>
+                        <Trash2 size={18} /> Delete PDF
+                      </button>
                       <button
                         className="primary"
                         onClick={handleFinalize}
@@ -642,9 +712,20 @@ function App() {
                     </div>
 
                     {draft.finalFileName && (
-                      <a className="download-link" href={`/api/invoices/${draft.id}/final.pdf`}>
-                        <Download size={18} /> {draft.finalFileName}
-                      </a>
+                      <div className="final-file-actions">
+                        <a className="download-link" href={`/api/invoices/${draft.id}/final.pdf`}>
+                          <Download size={18} /> {draft.finalFileName}
+                        </a>
+                        <button className="download-link" onClick={() => handleSendToDrive(draft)} disabled={busy}>
+                          <CloudUpload size={18} /> {draft.driveUploadedAt ? "Send again to Drive" : "Send to Drive"}
+                        </button>
+                        {draft.driveWebViewLink && (
+                          <a className="download-link secondary-link" href={draft.driveWebViewLink} target="_blank" rel="noreferrer">
+                            <ExternalLink size={18} /> Open in Drive
+                          </a>
+                        )}
+                        {draft.driveUploadError && <div className="drive-error">{draft.driveUploadError}</div>}
+                      </div>
                     )}
                   </aside>
                 </>
@@ -662,10 +743,26 @@ function App() {
                 <div>
                   <strong>{invoice.finalFileName}</strong>
                   <span>{invoice.extraction.vendorName} · {formatMoney(invoice.extraction.totalAmount)} · {invoice.finalizedAt?.slice(0, 10)}</span>
+                  {invoice.driveUploadedAt && <span className="drive-status">Sent to Google Drive {invoice.driveUploadedAt.slice(0, 10)}</span>}
+                  {invoice.driveUploadError && <span className="drive-error inline-error">{invoice.driveUploadError}</span>}
                 </div>
-                <a href={`/api/invoices/${invoice.id}/final.pdf`}>
-                  <Download size={18} /> Download
-                </a>
+                <div className="library-actions">
+                  <a href={`/api/invoices/${invoice.id}/final.pdf`}>
+                    <Download size={18} /> Download
+                  </a>
+                  {invoice.driveWebViewLink ? (
+                    <a href={invoice.driveWebViewLink} target="_blank" rel="noreferrer">
+                      <ExternalLink size={18} /> Drive
+                    </a>
+                  ) : (
+                    <button onClick={() => handleSendToDrive(invoice)} disabled={busy}>
+                      <CloudUpload size={18} /> Drive
+                    </button>
+                  )}
+                  <button className="danger-action" onClick={() => handleDeleteInvoice(invoice)} disabled={busy}>
+                    <Trash2 size={18} /> Delete
+                  </button>
+                </div>
               </article>
             ))}
           </section>
@@ -722,6 +819,39 @@ function App() {
                 onChange={(event) => setSettings({ ...settings, autoConfidenceThreshold: Number(event.target.value) })}
               />
             </label>
+            <label>
+              Google Drive folder ID
+              <input
+                value={settings.googleDriveFolderId}
+                placeholder="Folder ID or folder URL"
+                onChange={(event) => setSettings({ ...settings, googleDriveFolderId: event.target.value })}
+              />
+            </label>
+            <label className="checkbox-field">
+              <input
+                type="checkbox"
+                checked={settings.uploadFinalizedToDrive}
+                onChange={(event) => setSettings({ ...settings, uploadFinalizedToDrive: event.target.checked })}
+              />
+              <span>Send finalized PDFs to Drive automatically</span>
+            </label>
+            {hasGoogleDriveOAuthToken ? (
+              <div className="notice compact settings-note">Drive uploads use your connected Google account.</div>
+            ) : (
+              hasGoogleDriveOAuthCredentials && (
+                <a className="download-link settings-connect" href={googleDriveAuthUrl || "/api/google/oauth/start"} target="_blank" rel="noreferrer">
+                  <ExternalLink size={18} /> Connect Google Drive
+                </a>
+              )
+            )}
+            {googleDriveServiceAccountEmail && !hasGoogleDriveOAuthToken && (
+              <div className="notice compact warning-note">
+                Service account detected, but regular My Drive folders need OAuth or a shared drive.
+              </div>
+            )}
+            {!hasGoogleDriveOAuthCredentials && !hasGoogleDriveCredentials && (
+              <div className="notice compact warning-note">Google Drive credentials are not configured on this server.</div>
+            )}
             <button className="primary settings-save" onClick={handleSettingsSave} disabled={busy}>
               Save Settings
             </button>

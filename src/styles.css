@@ -825,6 +825,7 @@ select:focus {
 .primary,
 .download-link,
 .library-row a,
+.library-actions button,
 .import-button {
   display: inline-flex;
   align-items: center;
@@ -842,9 +843,21 @@ select:focus {
 .actions button:hover,
 .download-link:hover,
 .library-row a:hover,
+.library-actions button:hover,
 .import-button:hover {
   border-color: var(--emerald-2);
   color: var(--emerald);
+}
+
+.danger-action {
+  border-color: #ddb8b0 !important;
+  color: var(--danger) !important;
+  background: #fff7f5 !important;
+}
+
+.danger-action:hover {
+  border-color: var(--danger) !important;
+  color: #7d2d24 !important;
 }
 
 .compact-controls {
@@ -898,6 +911,15 @@ button:disabled {
   margin-top: 12px;
 }
 
+.final-file-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.secondary-link {
+  background: #f4fbf8;
+}
+
 .library-list,
 .gl-surface,
 .settings-surface {
@@ -925,6 +947,37 @@ button:disabled {
 .library-row span {
   margin-top: 4px;
   color: var(--muted);
+}
+
+.library-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.library-actions button {
+  font-size: 14px;
+}
+
+.drive-status {
+  color: var(--emerald) !important;
+  font-weight: 720;
+}
+
+.drive-error {
+  border: 1px solid #e4beb7;
+  border-radius: 10px;
+  padding: 9px 10px;
+  color: var(--danger);
+  background: #fff7f5;
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.inline-error {
+  display: inline-block;
+  margin-top: 6px;
 }
 
 .toolbar {
@@ -985,6 +1038,31 @@ button:disabled {
 
 .settings-surface {
   max-width: 520px;
+}
+
+.checkbox-field {
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.checkbox-field input {
+  width: 18px;
+  height: 18px;
+}
+
+.checkbox-field span {
+  color: #43504d;
+}
+
+.settings-note {
+  margin-top: 14px;
+}
+
+.warning-note {
+  border-color: #e2c1b9;
+  color: var(--danger);
+  background: #fff7f5;
 }
 
 .settings-save {
@@ -1088,6 +1166,7 @@ button:disabled {
   .document-footer,
   .toolbar,
   .library-row,
+  .library-actions,
   .actions {
     align-items: stretch;
     flex-direction: column;

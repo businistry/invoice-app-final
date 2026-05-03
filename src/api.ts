@@ -25,7 +25,15 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   return body as T;
 }
 
-export function fetchConfig(): Promise<{ settings: StampSettings; hasOpenAiKey: boolean }> {
+export function fetchConfig(): Promise<{
+  settings: StampSettings;
+  hasOpenAiKey: boolean;
+  hasGoogleDriveCredentials: boolean;
+  googleDriveServiceAccountEmail: string;
+  hasGoogleDriveOAuthCredentials: boolean;
+  hasGoogleDriveOAuthToken: boolean;
+  googleDriveAuthUrl: string;
+}> {
   return request("/api/config");
 }
 
@@ -53,6 +61,14 @@ export function updateInvoice(invoice: InvoiceRecord): Promise<InvoiceRecord> {
 
 export function finalizeInvoice(id: string): Promise<InvoiceRecord> {
   return request(`/api/invoices/${id}/finalize`, { method: "POST" });
+}
+
+export function sendInvoiceToDrive(id: string): Promise<InvoiceRecord> {
+  return request(`/api/invoices/${id}/send-to-drive`, { method: "POST" });
+}
+
+export function deleteInvoice(id: string): Promise<{ deletedId: string }> {
+  return request(`/api/invoices/${id}`, { method: "DELETE" });
 }
 
 export function fetchGlCodes(): Promise<{ glCodes: GlCode[]; importReports: GlImportReport[] }> {
