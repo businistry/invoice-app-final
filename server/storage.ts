@@ -13,7 +13,9 @@ const dbPath = path.join(dataDir, "db.json");
 
 const defaultSettings: StampSettings = {
   gmInitials: process.env.GM_INITIALS || "TC",
-  autoConfidenceThreshold: 0.72
+  autoConfidenceThreshold: 0.72,
+  googleDriveFolderId: process.env.GOOGLE_DRIVE_FOLDER_ID || "",
+  uploadFinalizedToDrive: process.env.GOOGLE_DRIVE_AUTO_UPLOAD === "true"
 };
 
 function ensureStorage(): void {

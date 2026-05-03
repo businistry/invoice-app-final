@@ -8,6 +8,16 @@ import multer from "multer";
 import { nanoid } from "nanoid";
 import { buildFinalPdfName, uniqueFilePath } from "./filename";
 import { matchGlCodes } from "./glMatcher";
+import {
+  googleDriveOAuthAuthUrl,
+  googleDriveServiceAccountEmail,
+  hasGoogleDriveOAuthCredentials,
+  hasGoogleDriveOAuthToken,
+  hasGoogleDriveCredentials,
+  normalizeGoogleDriveFolderId,
+  saveGoogleDriveOAuthCode,
+  uploadPdfToGoogleDrive
+} from "./googleDrive";
 import { extractInvoiceFromPdf } from "./invoiceExtractor";
 import { stampPdf } from "./pdfStamp";
 import {
@@ -127,6 +137,36 @@ function getInvoiceOr404(req: express.Request, res: express.Response): InvoiceRe
   return invoice;
 }
 
+async function removeFileIfPresent(filePath: string | undefined): Promise<void> {
+  if (!filePath) return;
+  try {
+    await fs.promises.unlink(filePath);
+  } catch (error) {
+    if (!(error && typeof error === "object" && "code" in error && error.code === "ENOENT")) {
+      throw error;
+    }
+  }
+}
+
+async function uploadFinalPdfToDrive(invoice: InvoiceRecord, folderId: string): Promise<InvoiceRecord> {
+  if (!invoice.finalPath || !invoice.finalFileName) {
+    throw new Error("Finalize the invoice before sending it to Google Drive.");
+  }
+
+  const uploaded = await uploadPdfToGoogleDrive({
+    sourcePath: invoice.finalPath,
+    fileName: invoice.finalFileName,
+    folderId
+  });
+
+  invoice.driveFileId = uploaded.id;
+  invoice.driveFileName = uploaded.name;
+  invoice.driveWebViewLink = uploaded.webViewLink || undefined;
+  invoice.driveUploadedAt = new Date().toISOString();
+  invoice.driveUploadError = undefined;
+  return invoice;
+}
+
 async function finalizeInvoice(invoice: InvoiceRecord): Promise<InvoiceRecord> {
   const db = readDb();
   const settings = db.settings;
@@ -156,6 +196,20 @@ async function finalizeInvoice(invoice: InvoiceRecord): Promise<InvoiceRecord> {
   invoice.finalizedAt = new Date().toISOString();
   invoice.status = invoice.status === "auto_finalized" ? "auto_finalized" : "finalized";
   invoice.warnings = [];
+  invoice.driveFileId = undefined;
+  invoice.driveFileName = undefined;
+  invoice.driveWebViewLink = undefined;
+  invoice.driveUploadedAt = undefined;
+  invoice.driveUploadError = undefined;
+
+  if (settings.uploadFinalizedToDrive && settings.googleDriveFolderId) {
+    try {
+      await uploadFinalPdfToDrive(invoice, settings.googleDriveFolderId);
+    } catch (error) {
+      invoice.driveUploadError = error instanceof Error ? error.message : "Google Drive upload failed.";
+    }
+  }
+
   return updateInvoice(invoice);
 }
 
@@ -171,7 +225,39 @@ app.get("/api/health", (_req, res) => {
 
 app.get("/api/config", (_req, res) => {
   const db = readDb();
-  res.json({ settings: db.settings, hasOpenAiKey: Boolean(process.env.OPENAI_API_KEY) });
+  res.json({
+    settings: db.settings,
+    hasOpenAiKey: Boolean(process.env.OPENAI_API_KEY),
+    hasGoogleDriveCredentials: hasGoogleDriveCredentials(),
+    googleDriveServiceAccountEmail: googleDriveServiceAccountEmail(),
+    hasGoogleDriveOAuthCredentials: hasGoogleDriveOAuthCredentials(),
+    hasGoogleDriveOAuthToken: hasGoogleDriveOAuthToken(),
+    googleDriveAuthUrl: googleDriveOAuthAuthUrl()
+  });
+});
+
+app.get("/api/google/oauth/start", (_req, res) => {
+  const url = googleDriveOAuthAuthUrl();
+  if (!url) {
+    res.status(400).send("Google OAuth credentials are not configured.");
+    return;
+  }
+  res.redirect(url);
+});
+
+app.get("/api/google/oauth/callback", async (req, res) => {
+  const code = typeof req.query.code === "string" ? req.query.code : "";
+  if (!code) {
+    res.status(400).send("Google OAuth did not return a code.");
+    return;
+  }
+
+  try {
+    await saveGoogleDriveOAuthCode(code);
+    res.send("Google Drive is connected. You can close this tab and return to the invoice app.");
+  } catch (error) {
+    res.status(500).send(error instanceof Error ? error.message : "Google Drive connection failed.");
+  }
 });
 
 app.get("/api/gl-codes", (_req, res) => {
@@ -204,7 +290,9 @@ app.put("/api/settings/stamp", (req, res) => {
   db.settings = {
     ...db.settings,
     gmInitials: String(req.body.gmInitials || "").trim().slice(0, 12) || "TC",
-    autoConfidenceThreshold: Math.min(Math.max(Number(req.body.autoConfidenceThreshold || 0.72), 0.2), 0.95)
+    autoConfidenceThreshold: Math.min(Math.max(Number(req.body.autoConfidenceThreshold || 0.72), 0.2), 0.95),
+    googleDriveFolderId: normalizeGoogleDriveFolderId(req.body.googleDriveFolderId),
+    uploadFinalizedToDrive: req.body.uploadFinalizedToDrive === true
   };
   writeDb(db);
   res.json(db.settings);
@@ -301,6 +389,44 @@ app.post("/api/invoices/:id/finalize", async (req, res) => {
     invoice.error = error instanceof Error ? error.message : "PDF stamping failed";
     updateInvoice(invoice);
     res.status(500).json(invoice);
+  }
+});
+
+app.post("/api/invoices/:id/send-to-drive", async (req, res) => {
+  const invoice = getInvoiceOr404(req, res);
+  if (!invoice) return;
+  if (!invoice.finalPath || !invoice.finalFileName) {
+    res.status(400).json({ error: "Finalize the invoice before sending it to Google Drive." });
+    return;
+  }
+
+  const db = readDb();
+  try {
+    const uploaded = await uploadFinalPdfToDrive(invoice, db.settings.googleDriveFolderId);
+    res.json(updateInvoice(uploaded));
+  } catch (error) {
+    invoice.driveUploadError = error instanceof Error ? error.message : "Google Drive upload failed.";
+    res.json(updateInvoice(invoice));
+  }
+});
+
+app.delete("/api/invoices/:id", async (req, res) => {
+  const db = readDb();
+  const index = db.invoices.findIndex((record) => record.id === req.params.id);
+  if (index === -1) {
+    res.status(404).json({ error: "Invoice not found" });
+    return;
+  }
+
+  const invoice = db.invoices[index];
+
+  try {
+    await Promise.all([removeFileIfPresent(invoice.originalPath), removeFileIfPresent(invoice.finalPath)]);
+    db.invoices.splice(index, 1);
+    writeDb(db);
+    res.json({ deletedId: invoice.id });
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : "A PDF file could not be removed." });
   }
 });
 

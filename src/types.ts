@@ -62,6 +62,11 @@ export type InvoiceRecord = {
   stampPlacement: StampPlacement;
   finalFileName?: string;
   finalizedAt?: string;
+  driveFileId?: string;
+  driveFileName?: string;
+  driveWebViewLink?: string;
+  driveUploadedAt?: string;
+  driveUploadError?: string;
   warnings: string[];
   error?: string;
 };
@@ -69,4 +74,6 @@ export type InvoiceRecord = {
 export type StampSettings = {
   gmInitials: string;
   autoConfidenceThreshold: number;
+  googleDriveFolderId: string;
+  uploadFinalizedToDrive: boolean;
 };
