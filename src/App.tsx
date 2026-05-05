@@ -30,6 +30,7 @@ import pdfWorker from "pdfjs-dist/build/pdf.worker.mjs?url";
 import { ChangeEvent, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   ApiError,
+  clearAllInvoices,
   deleteInvoice,
   fetchConfig,
   fetchGlCodes,
@@ -333,6 +334,23 @@ function App() {
     }
   }
 
+  async function handleClearAllInvoices() {
+    if (!window.confirm("Clear all invoices and start fresh? This removes every invoice record and its PDF files. GL codes and settings are kept.")) return;
+
+    setBusy(true);
+    try {
+      const result = await clearAllInvoices();
+      setInvoices([]);
+      setSelectedId("");
+      setDraft(null);
+      setMessage(`Cleared ${result.cleared} invoice${result.cleared === 1 ? "" : "s"}. GL codes and settings preserved.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Clear failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function updateDraft(next: Partial<InvoiceRecord>) {
     setDraft((current) => (current ? { ...current, ...next } : current));
   }
@@ -488,7 +506,20 @@ function App() {
                   <span>Intake</span>
                   <h2>Invoice Queue</h2>
                 </div>
-                <em>{displayedInvoiceCountLabel}</em>
+                <div className="panel-title-actions">
+                  <em>{displayedInvoiceCountLabel}</em>
+                  {invoices.length > 0 && (
+                    <button
+                      type="button"
+                      className="danger-action clear-all-btn"
+                      onClick={handleClearAllInvoices}
+                      disabled={busy}
+                      title="Clear all invoices and start fresh"
+                    >
+                      <Trash2 size={14} /> Clear All
+                    </button>
+                  )}
+                </div>
               </div>
               <label className="upload-zone elevated-upload">
                 <UploadCloud size={24} />

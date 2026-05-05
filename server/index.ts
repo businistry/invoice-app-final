@@ -410,6 +410,24 @@ app.post("/api/invoices/:id/send-to-drive", async (req, res) => {
   }
 });
 
+app.delete("/api/invoices", async (_req, res) => {
+  const db = readDb();
+  try {
+    await Promise.all(
+      db.invoices.flatMap((invoice) => [
+        removeFileIfPresent(invoice.originalPath),
+        removeFileIfPresent(invoice.finalPath)
+      ])
+    );
+    const cleared = db.invoices.length;
+    db.invoices = [];
+    writeDb(db);
+    res.json({ cleared });
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : "Failed to clear invoices." });
+  }
+});
+
 app.delete("/api/invoices/:id", async (req, res) => {
   const db = readDb();
   const index = db.invoices.findIndex((record) => record.id === req.params.id);

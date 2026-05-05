@@ -860,6 +860,24 @@ select:focus {
   color: #7d2d24 !important;
 }
 
+.panel-title-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.clear-all-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 680;
+  border-radius: 6px;
+  border: 1px solid;
+}
+
 .compact-controls {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
