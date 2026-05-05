@@ -71,6 +71,10 @@ export function deleteInvoice(id: string): Promise<{ deletedId: string }> {
   return request(`/api/invoices/${id}`, { method: "DELETE" });
 }
 
+export function clearAllInvoices(): Promise<{ cleared: number }> {
+  return request("/api/invoices", { method: "DELETE" });
+}
+
 export function fetchGlCodes(): Promise<{ glCodes: GlCode[]; importReports: GlImportReport[] }> {
   return request("/api/gl-codes");
 }
