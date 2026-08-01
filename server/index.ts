@@ -106,7 +106,11 @@ function validationWarnings(invoice: InvoiceRecord): string[] {
   if (stampLines.some((line) => typeof line.amount !== "number" || !Number.isFinite(line.amount))) {
     warnings.push("Every GL line needs an amount.");
   }
-  if (typeof invoice.extraction.totalAmount === "number" && moneyTotal(stampLines) !== Number(invoice.extraction.totalAmount.toFixed(2))) {
+  if (
+    stampLines.length > 0 &&
+    typeof invoice.extraction.totalAmount === "number" &&
+    moneyTotal(stampLines) !== Number(invoice.extraction.totalAmount.toFixed(2))
+  ) {
     warnings.push("GL line amounts must equal the invoice total.");
   }
   return warnings;
@@ -354,12 +358,20 @@ app.patch("/api/invoices/:id", (req, res) => {
   const invoice = getInvoiceOr404(req, res);
   if (!invoice) return;
 
+  const requestedTotal = req.body.extraction?.totalAmount;
+  const normalizedTotal =
+    requestedTotal === null || requestedTotal === ""
+      ? null
+      : Number.isFinite(Number(requestedTotal))
+        ? Number(requestedTotal)
+        : invoice.extraction.totalAmount;
+
   invoice.extraction = {
     ...invoice.extraction,
     ...req.body.extraction,
     totalAmount:
       req.body.extraction && "totalAmount" in req.body.extraction
-        ? Number(req.body.extraction.totalAmount)
+        ? normalizedTotal
         : invoice.extraction.totalAmount
   };
   invoice.glLines = Array.isArray(req.body.glLines) ? req.body.glLines.slice(0, 3) : invoice.glLines;
@@ -465,7 +477,7 @@ app.get("/api/invoices/:id/final.pdf", (req, res) => {
 });
 
 const distPath = path.join(process.cwd(), "dist");
-if (process.env.NODE_ENV === "production" && fs.existsSync(distPath)) {
+if (fs.existsSync(distPath)) {
   app.use(express.static(distPath));
   app.use((req, res, next) => {
     if (req.method === "GET" && !req.path.startsWith("/api")) {
