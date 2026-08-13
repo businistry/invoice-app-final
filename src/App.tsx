@@ -15,6 +15,8 @@ import {
   FileText,
   Gauge,
   Loader2,
+  PanelLeftClose,
+  PanelLeftOpen,
   ReceiptText,
   Search,
   Settings,
@@ -23,7 +25,8 @@ import {
   Table2,
   Trash2,
   UploadCloud,
-  Wand2
+  Wand2,
+  X
 } from "lucide-react";
 import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy } from "pdfjs-dist";
 import pdfWorker from "pdfjs-dist/build/pdf.worker.mjs?url";
@@ -63,7 +66,8 @@ function formatMoney(value: number | null | undefined): string {
 }
 
 function statusLabel(status: string): string {
-  return status.replace("_", " ");
+  const label = status.replaceAll("_", " ");
+  return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
 function formatPercent(value: number | null | undefined): string {
@@ -97,6 +101,7 @@ function validationWarningsForDraft(invoice: InvoiceRecord): string[] {
     warnings.push("Every GL line needs an amount.");
   }
   if (
+    stampLines.length > 0 &&
     typeof invoice.extraction.totalAmount === "number" &&
     Number.isFinite(invoice.extraction.totalAmount) &&
     sumLines(stampLines) !== Number(invoice.extraction.totalAmount.toFixed(2))
@@ -153,6 +158,7 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [glSearch, setGlSearch] = useState("");
+  const [queueOpen, setQueueOpen] = useState(true);
 
   async function refresh() {
     const [config, invoiceData, glData] = await Promise.all([fetchConfig(), fetchInvoices(), fetchGlCodes()]);
@@ -203,6 +209,7 @@ function App() {
       const uploaded = await uploadInvoices(event.target.files);
       await refresh();
       setSelectedId(uploaded.invoices[0]?.id || selectedId);
+      setQueueOpen(false);
       setMessage(`${uploaded.invoices.length} invoice${uploaded.invoices.length === 1 ? "" : "s"} uploaded.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Upload failed");
@@ -275,7 +282,7 @@ function App() {
       const result = await importGlCodes(file);
       setGlCodes(result.glCodes);
       setReports((current) => [result.report, ...current]);
-      setMessage(`Imported ${result.report.importedCount} GL codes; skipped ${result.report.skippedRows.length}.`);
+      setMessage("");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "GL import failed");
     } finally {
@@ -394,9 +401,23 @@ function App() {
 
   function showInvoiceFilter(filter: InvoiceFilter, nextView: View = "queue") {
     const nextInvoices = invoicesForFilter(invoices, filter);
+    const nextId = nextInvoices[0]?.id || "";
+    if (
+      nextId !== selectedId &&
+      draftIsDirty &&
+      !window.confirm("Discard your unsaved changes and switch views?")
+    ) {
+      return;
+    }
     setInvoiceFilter(filter);
     setView(nextView);
-    setSelectedId(nextInvoices[0]?.id || "");
+    setSelectedId(nextId);
+  }
+
+  function selectInvoice(id: string) {
+    if (id === selectedId) return;
+    if (draftIsDirty && !window.confirm("Discard your unsaved changes and open another invoice?")) return;
+    setSelectedId(id);
   }
 
   const activeViewTitle =
@@ -416,6 +437,20 @@ function App() {
       ? Number((draft.extraction.totalAmount - draftLineTotal).toFixed(2))
       : null;
   const finalizeBlockers = draft ? validationWarningsForDraft(draft) : [];
+  const persistedDraft = draft ? invoices.find((invoice) => invoice.id === draft.id) : null;
+  const draftIsDirty =
+    Boolean(draft && persistedDraft) &&
+    JSON.stringify({
+      extraction: draft?.extraction,
+      glLines: draft?.glLines,
+      stampPlacement: draft?.stampPlacement
+    }) !==
+      JSON.stringify({
+        extraction: persistedDraft?.extraction,
+        glLines: persistedDraft?.glLines,
+        stampPlacement: persistedDraft?.stampPlacement
+      });
+  const sourceWarnings = draft ? [...draft.extraction.warnings, ...(draft.error ? [draft.error] : [])] : [];
   const firstActiveLineIndex = draft ? draft.glLines.findIndex((line) => line.glCode.trim() || typeof line.amount === "number") : -1;
   const canSetSingleLineTotal =
     Boolean(draft) &&
@@ -423,6 +458,16 @@ function App() {
     activeGlLines(draft.glLines).length === 1 &&
     firstActiveLineIndex >= 0 &&
     amountBalance !== 0;
+
+  useEffect(() => {
+    function protectUnsavedChanges(event: BeforeUnloadEvent) {
+      if (!draftIsDirty) return;
+      event.preventDefault();
+    }
+
+    window.addEventListener("beforeunload", protectUnsavedChanges);
+    return () => window.removeEventListener("beforeunload", protectUnsavedChanges);
+  }, [draftIsDirty]);
 
   return (
     <main className="app-shell intelligence-shell">
@@ -496,18 +541,38 @@ function App() {
           </div>
         </header>
 
-        {message && <div className="notice">{message}</div>}
+        {message && (
+          <div className="notice app-notice" role="status" aria-live="polite">
+            <span>{message}</span>
+            <button type="button" onClick={() => setMessage("")} aria-label="Dismiss message">
+              <X size={16} />
+            </button>
+          </div>
+        )}
 
         {view === "queue" && (
-          <section className="queue-layout console-grid">
-            <div className="left-column intelligence-queue">
-              <div className="panel-title">
+          <section className={`queue-layout console-grid ${queueOpen ? "" : "queue-collapsed"}`}>
+            <div className={`left-column intelligence-queue ${queueOpen ? "" : "collapsed"}`}>
+              {queueOpen ? (
+                <>
+                  <div className="panel-title">
                 <div>
                   <span>Intake</span>
                   <h2>Invoice Queue</h2>
                 </div>
                 <div className="panel-title-actions">
                   <em>{displayedInvoiceCountLabel}</em>
+                  {draft && (
+                    <button
+                      type="button"
+                      className="icon-action"
+                      onClick={() => setQueueOpen(false)}
+                      aria-label="Collapse invoice queue"
+                      title="Collapse invoice queue"
+                    >
+                      <PanelLeftClose size={16} />
+                    </button>
+                  )}
                   {invoices.length > 0 && (
                     <button
                       type="button"
@@ -520,12 +585,13 @@ function App() {
                     </button>
                   )}
                 </div>
-              </div>
-              <label className="upload-zone elevated-upload">
-                <UploadCloud size={24} />
-                <span>Drop invoice PDFs</span>
-                <input type="file" accept="application/pdf" multiple onChange={handleUpload} />
-              </label>
+                  </div>
+                  <label className="upload-zone elevated-upload">
+                    <UploadCloud size={24} />
+                    <span>Choose or drop invoice PDFs</span>
+                    <small>PDF · multiple files supported</small>
+                    <input type="file" accept="application/pdf" multiple onChange={handleUpload} />
+                  </label>
 
               <div className="queue-filters">
                 <button
@@ -559,7 +625,7 @@ function App() {
                   <button
                     key={invoice.id}
                     className={`invoice-row ${selectedId === invoice.id ? "selected" : ""}`}
-                    onClick={() => setSelectedId(invoice.id)}
+                    onClick={() => selectInvoice(invoice.id)}
                   >
                     <span className="doc-chip"><FileText size={15} /></span>
                     <div>
@@ -578,7 +644,21 @@ function App() {
                         : "No invoices yet."}
                   </div>
                 )}
-              </div>
+                  </div>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className="queue-reveal"
+                  onClick={() => setQueueOpen(true)}
+                  aria-label={`Open invoice queue, ${displayedInvoices.length} invoices`}
+                  title="Open invoice queue"
+                >
+                  <PanelLeftOpen size={20} />
+                  <span>Queue</span>
+                  <strong>{displayedInvoices.length}</strong>
+                </button>
+              )}
             </div>
 
             <div className="review-surface approval-grid">
@@ -598,7 +678,12 @@ function App() {
                     <InvoiceDocumentPreview invoiceId={draft.id} />
                     <div className="document-footer">
                       <span><Bot size={14} /> {topSuggestion ? `${topSuggestion.glCode} suggested` : "Awaiting GL signal"}</span>
-                      <span><ShieldCheck size={14} /> {draft.warnings.length === 0 ? "Ready to finalize" : `${draft.warnings.length} review note${draft.warnings.length === 1 ? "" : "s"}`}</span>
+                      <span>
+                        <ShieldCheck size={14} />
+                        {finalizeBlockers.length === 0
+                          ? "Ready to finalize"
+                          : `${finalizeBlockers.length} item${finalizeBlockers.length === 1 ? "" : "s"} to finish`}
+                      </span>
                     </div>
                   </div>
                   <aside className="review-panel approval-cockpit">
@@ -606,13 +691,16 @@ function App() {
                       <div>
                         <span>Approval Cockpit</span>
                         <h2>{draft.extraction.vendorName || "Unidentified vendor"}</h2>
+                        <em className={`draft-state ${draftIsDirty ? "is-dirty" : ""}`}>
+                          {draftIsDirty ? "Unsaved changes" : "All changes saved"}
+                        </em>
                       </div>
                       <BadgeCheck size={22} />
                     </div>
 
-                    {draft.warnings.length > 0 && (
+                    {sourceWarnings.length > 0 && (
                       <div className="warning-list">
-                        {draft.warnings.map((warning) => (
+                        {sourceWarnings.map((warning) => (
                           <span key={warning}>{warning}</span>
                         ))}
                       </div>
@@ -644,7 +732,7 @@ function App() {
                     <div className="field-grid">
                       <label>
                         Date
-                        <input value={draft.extraction.invoiceDate} onChange={(event) => updateExtraction("invoiceDate", event.target.value)} />
+                        <input type="date" value={draft.extraction.invoiceDate} onChange={(event) => updateExtraction("invoiceDate", event.target.value)} />
                       </label>
                       <label>
                         Total
@@ -728,17 +816,17 @@ function App() {
                     />
 
                     <div className="actions">
-                      <button onClick={saveDraft} disabled={busy}>Save</button>
-                      <button className="danger-action" onClick={() => handleDeleteInvoice(draft)} disabled={busy}>
+                      <button className="danger-action subtle-danger" onClick={() => handleDeleteInvoice(draft)} disabled={busy}>
                         <Trash2 size={18} /> Delete PDF
                       </button>
+                      <button onClick={saveDraft} disabled={busy || !draftIsDirty}>Save changes</button>
                       <button
                         className="primary"
                         onClick={handleFinalize}
                         disabled={busy || finalizeBlockers.length > 0}
                         title={finalizeBlockers.length > 0 ? finalizeBlockers.join(" ") : undefined}
                       >
-                        <CheckCircle2 size={18} /> Finalize PDF
+                        <CheckCircle2 size={18} /> Approve &amp; finalize
                       </button>
                     </div>
 
@@ -761,7 +849,16 @@ function App() {
                   </aside>
                 </>
               ) : (
-                <div className="empty-state">No invoice selected.</div>
+                <div className="empty-state">
+                  <div className="empty-state-icon"><ReceiptText size={26} /></div>
+                  <h2>Ready for your first invoice</h2>
+                  <p>Upload one or more PDFs, confirm the extracted details, assign GL codes, and finalize the stamped file.</p>
+                  <div className="empty-steps" aria-label="Invoice workflow">
+                    <span><strong>1</strong> Upload</span>
+                    <span><strong>2</strong> Review &amp; code</span>
+                    <span><strong>3</strong> Finalize</span>
+                  </div>
+                </div>
               )}
             </div>
           </section>
