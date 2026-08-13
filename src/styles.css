@@ -28,10 +28,17 @@
   box-sizing: border-box;
 }
 
+html {
+  /* Stop iOS inflating text in landscape. */
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  min-height: 100dvh;
+  -webkit-tap-highlight-color: rgba(20, 89, 77, 0.12);
   background:
     linear-gradient(180deg, rgba(255, 253, 248, 0.7), rgba(243, 241, 236, 0.96)),
     repeating-linear-gradient(90deg, rgba(23, 32, 31, 0.018) 0 1px, transparent 1px 72px);
@@ -52,6 +59,7 @@ a {
   display: grid;
   grid-template-columns: 236px minmax(0, 1fr);
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .command-rail {
@@ -60,6 +68,7 @@ a {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+  min-height: 100dvh;
   padding: 24px 16px;
   background: #121a19;
   color: #f7f3ea;
@@ -487,6 +496,7 @@ button.metric-card:hover,
 
 .document-stage {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr) auto;
   min-width: 0;
   border: 1px solid var(--line);
@@ -1118,7 +1128,12 @@ button:disabled {
   }
 }
 
-@media (max-width: 1240px) {
+/*
+ * The review pane sits inside .console-grid's 320px + 1fr split and then gives
+ * up another fixed 420px to the cockpit, so the PDF is squeezed to ~210px until
+ * there is roughly 1400px to work with. Collapse to one column until then.
+ */
+@media (max-width: 1400px) {
   .approval-grid {
     grid-template-columns: 1fr;
   }
@@ -1163,6 +1178,16 @@ button:disabled {
 @media (max-width: 720px) {
   .studio-workspace {
     padding: 16px;
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right));
+    padding-bottom: max(24px, env(safe-area-inset-bottom));
+  }
+
+  .command-rail {
+    padding: 18px 16px;
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right));
+    padding-top: max(18px, env(safe-area-inset-top));
   }
 
   .command-bar {
@@ -1204,7 +1229,110 @@ button:disabled {
   }
 
   .source-preview-frame {
-    min-height: auto;
+    min-height: 52dvh;
     padding: 14px;
+  }
+
+  /* Anything under 16px makes iOS zoom the page when the field is focused. */
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  /* Comfortable thumb targets. 44px is the Apple/WCAG floor. */
+  button,
+  .sidebar nav button,
+  input,
+  select {
+    min-height: 44px;
+  }
+
+  .danger-action,
+  .clear-all-btn,
+  .active-filter,
+  .filter-row button {
+    min-height: 44px;
+    padding-inline: 14px;
+  }
+
+  /* Nested scroll areas fight the page scroll on touch. Let the page own it. */
+  .invoice-list,
+  .approval-cockpit {
+    max-height: none;
+    overflow: visible;
+  }
+
+}
+
+/*
+ * GL rows are pinned to min-width: 840px, so they scroll sideways on anything
+ * narrower than roughly 900px — including tablet portrait. Stack them into
+ * labelled cards from there down rather than at the 720px mobile breakpoint.
+ */
+@media (max-width: 880px) {
+  .gl-table {
+    overflow: visible;
+  }
+
+  .gl-header {
+    display: none;
+  }
+
+  .gl-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+    min-width: 0;
+    padding: 14px 4px;
+  }
+
+  .gl-row strong {
+    font-size: 15px;
+  }
+
+  .gl-row span:empty {
+    display: none;
+  }
+
+  .gl-row span::before {
+    display: block;
+    margin-bottom: 2px;
+    color: var(--faint);
+    font-size: 11px;
+    font-weight: 780;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .gl-row span:nth-of-type(1)::before {
+    content: "Description";
+  }
+
+  .gl-row span:nth-of-type(2)::before {
+    content: "Keywords";
+  }
+}
+
+@media (max-width: 560px) {
+  .studio-workspace {
+    padding: 12px;
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+  }
+
+  .topbar-metrics,
+  .sidebar nav {
+    grid-template-columns: 1fr;
+  }
+
+  .document-toolbar strong {
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .source-preview-frame {
+    min-height: 44dvh;
+    padding: 10px;
   }
 }
