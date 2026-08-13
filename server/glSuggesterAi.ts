@@ -132,10 +132,26 @@ function invoiceSummary(extraction: InvoiceExtraction): string {
   ].join("\n");
 }
 
+/**
+ * Never throws. A failure here must not take down an invoice upload, so the
+ * caller falls back to keyword matching alone.
+ */
 export async function suggestGlCodesWithAi(
   extraction: InvoiceExtraction,
   glCodes: GlCode[],
   invoices: InvoiceRecord[] = []
+): Promise<GlSuggestion[]> {
+  try {
+    return await requestGlCodes(extraction, glCodes, invoices);
+  } catch {
+    return [];
+  }
+}
+
+async function requestGlCodes(
+  extraction: InvoiceExtraction,
+  glCodes: GlCode[],
+  invoices: InvoiceRecord[]
 ): Promise<GlSuggestion[]> {
   const activeCodes = glCodes.filter((code) => code.active);
   if (!process.env.OPENAI_API_KEY || activeCodes.length === 0) return [];
@@ -193,6 +209,17 @@ export async function suggestGlCodesWithAi(
     .filter((suggestion): suggestion is GlSuggestion => suggestion !== null && suggestion.score > 0)
     .sort((a, b) => b.score - a.score)
     .slice(0, 3);
+}
+
+/**
+ * True only when both engines independently put the same code first. Used to
+ * gate auto-finalization: a keyword hit the model disagrees with is exactly the
+ * case a human should look at.
+ */
+export function enginesAgree(ruleSuggestions: GlSuggestion[], aiSuggestions: GlSuggestion[]): boolean {
+  const topRule = ruleSuggestions[0]?.glCode;
+  const topAi = aiSuggestions[0]?.glCode;
+  return Boolean(topRule && topAi && topRule === topAi);
 }
 
 export function blendSuggestions(ruleSuggestions: GlSuggestion[], aiSuggestions: GlSuggestion[]): GlSuggestion[] {

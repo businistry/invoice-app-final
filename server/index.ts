@@ -8,6 +8,7 @@ import multer from "multer";
 import { nanoid } from "nanoid";
 import { buildFinalPdfName, uniqueFilePath } from "./filename";
 import { matchGlCodes } from "./glMatcher";
+import { blendSuggestions, enginesAgree, suggestGlCodesWithAi } from "./glSuggesterAi";
 import {
   googleDriveOAuthAuthUrl,
   googleDriveServiceAccountEmail,
@@ -79,7 +80,7 @@ function defaultPlacement(): StampPlacement {
   return { pageIndex: 0, x: 44, y: 44, width: 380, height: 128 };
 }
 
-function initialGlLines(invoice: InvoiceRecord): InvoiceGlLine[] {
+function initialGlLines(invoice: InvoiceRecord, fromAi = false): InvoiceGlLine[] {
   const total = invoice.extraction.totalAmount;
   const topSuggestion = invoice.glSuggestions[0];
   if (!topSuggestion || topSuggestion.score < 0.45 || typeof total !== "number") return [];
@@ -90,7 +91,7 @@ function initialGlLines(invoice: InvoiceRecord): InvoiceGlLine[] {
       description: topSuggestion.description,
       amount: total,
       confidence: topSuggestion.score,
-      source: "rule"
+      source: fromAi ? "ai" : "rule"
     }
   ];
 }
@@ -320,7 +321,10 @@ app.post("/api/invoices/upload", upload.array("files"), async (req, res) => {
 
     const buffer = fs.readFileSync(originalPath);
     const extraction = await extractInvoiceFromPdf(buffer, file.originalname);
-    const glSuggestions = matchGlCodes(extraction, db.glCodes, db.invoices);
+    const ruleSuggestions = matchGlCodes(extraction, db.glCodes, db.invoices);
+    const aiSuggestions = await suggestGlCodesWithAi(extraction, db.glCodes, db.invoices);
+    const glSuggestions = blendSuggestions(ruleSuggestions, aiSuggestions);
+    const aiRan = aiSuggestions.length > 0;
     let invoice: InvoiceRecord = {
       id,
       originalName: file.originalname,
@@ -329,15 +333,19 @@ app.post("/api/invoices/upload", upload.array("files"), async (req, res) => {
       status: "needs_review",
       extraction,
       glSuggestions,
+      aiSuggestions,
       glLines: [],
       stampPlacement: defaultPlacement(),
       warnings: []
     };
 
-    invoice.glLines = initialGlLines(invoice);
+    invoice.glLines = initialGlLines(invoice, aiRan && aiSuggestions[0]?.glCode === glSuggestions[0]?.glCode);
     invoice.warnings = displayWarnings(invoice);
 
-    if (canAutoFinalize(invoice, db.settings.autoConfidenceThreshold)) {
+    if (
+      canAutoFinalize(invoice, db.settings.autoConfidenceThreshold) &&
+      (!aiRan || enginesAgree(ruleSuggestions, aiSuggestions))
+    ) {
       invoice.status = "auto_finalized";
       invoice = await finalizeInvoice(invoice);
     } else {
@@ -368,7 +376,10 @@ app.patch("/api/invoices/:id", (req, res) => {
   invoice.warnings = displayWarnings(invoice);
 
   const db = readDb();
-  invoice.glSuggestions = matchGlCodes(invoice.extraction, db.glCodes, db.invoices);
+  invoice.glSuggestions = blendSuggestions(
+    matchGlCodes(invoice.extraction, db.glCodes, db.invoices),
+    invoice.aiSuggestions || []
+  );
   updateInvoice(invoice);
   res.json(invoice);
 });

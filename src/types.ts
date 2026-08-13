@@ -58,6 +58,7 @@ export type InvoiceRecord = {
   status: InvoiceStatus;
   extraction: InvoiceExtraction;
   glSuggestions: GlSuggestion[];
+  aiSuggestions?: GlSuggestion[];
   glLines: InvoiceGlLine[];
   stampPlacement: StampPlacement;
   finalFileName?: string;

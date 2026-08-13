@@ -65,6 +65,8 @@ export type InvoiceRecord = {
   status: InvoiceStatus;
   extraction: InvoiceExtraction;
   glSuggestions: GlSuggestion[];
+  /** Kept separately so edits can re-blend without paying for another model call. */
+  aiSuggestions?: GlSuggestion[];
   glLines: InvoiceGlLine[];
   stampPlacement: StampPlacement;
   finalFileName?: string;

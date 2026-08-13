@@ -1128,7 +1128,12 @@ button:disabled {
   }
 }
 
-@media (max-width: 1240px) {
+/*
+ * The review pane sits inside .console-grid's 320px + 1fr split and then gives
+ * up another fixed 420px to the cockpit, so the PDF is squeezed to ~210px until
+ * there is roughly 1400px to work with. Collapse to one column until then.
+ */
+@media (max-width: 1400px) {
   .approval-grid {
     grid-template-columns: 1fr;
   }
