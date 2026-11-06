@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k -n api,web -c cyan,magenta \"npm:dev:api\" \"npm:dev:web\"",
+    "dev": "concurrently -k -P --hide api -n api,web -c cyan,magenta \"npm:dev:api\" \"npm:dev:web -- {@}\" --",
     "dev:api": "tsx watch server/index.ts",
     "dev:web": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
@@ -40,6 +40,7 @@
     "playwright": "^1.59.1",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
-    "vite": "^7.1.9"
+    "vite": "^7.1.9",
+    "@dyad-sh/react-vite-component-tagger": "^0.9.0"
   }
 }
