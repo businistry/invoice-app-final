@@ -522,6 +522,31 @@ button.metric-card:hover,
   white-space: nowrap;
 }
 
+.document-toolbar {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.document-toolbar > div {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.document-toolbar-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.send-drive-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+}
+
 .confidence-pill {
   display: inline-flex;
   align-items: center;

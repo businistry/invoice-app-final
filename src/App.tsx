@@ -41,6 +41,7 @@ import {
   updateInvoice,
   uploadInvoices
 } from "./api";
+import { isPendingInvoice, nextPendingInvoiceId } from "./invoiceQueue";
 import type { GlCode, GlImportReport, InvoiceGlLine, InvoiceRecord, StampSettings } from "./types";
 
 type View = "queue" | "gl" | "settings";
@@ -120,10 +121,6 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
-function isPendingInvoice(invoice: InvoiceRecord): boolean {
-  return invoice.status === "needs_review" || invoice.status === "error";
-}
-
 function isFinalizedInvoice(invoice: InvoiceRecord): boolean {
   return Boolean(invoice.finalFileName);
 }
@@ -136,7 +133,7 @@ function invoicesForFilter(invoices: InvoiceRecord[], filter: InvoiceFilter): In
 
 function App() {
   const [view, setView] = useState<View>("queue");
-  const [invoiceFilter, setInvoiceFilter] = useState<InvoiceFilter>("all");
+  const [invoiceFilter, setInvoiceFilter] = useState<InvoiceFilter>("pending");
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
   const [glCodes, setGlCodes] = useState<GlCode[]>([]);
   const [reports, setReports] = useState<GlImportReport[]>([]);
@@ -165,7 +162,8 @@ function App() {
     setInvoices(invoiceData.invoices);
     setGlCodes(glData.glCodes);
     setReports(glData.importReports);
-    if (!selectedId && invoiceData.invoices[0]) setSelectedId(invoiceData.invoices[0].id);
+    if (!selectedId) setSelectedId(nextPendingInvoiceId(invoiceData.invoices));
+    return invoiceData.invoices;
   }
 
   useEffect(() => {
@@ -217,10 +215,10 @@ function App() {
     setMessage("Uploading and reading invoices...");
     try {
       const uploaded = await uploadInvoices(event.target.files);
-      await refresh();
+      const latestInvoices = await refresh();
       setInvoiceFilter("pending");
       setView("queue");
-      setSelectedId(uploaded.invoices[0]?.id || selectedId);
+      setSelectedId(uploaded.invoices.find(isPendingInvoice)?.id || nextPendingInvoiceId(latestInvoices));
       setMessage(`${uploaded.invoices.length} invoice${uploaded.invoices.length === 1 ? "" : "s"} uploaded.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Upload failed");
@@ -264,11 +262,13 @@ function App() {
       const finalized = await finalizeInvoice(saved.id);
       setInvoices((current) => current.map((invoice) => (invoice.id === finalized.id ? finalized : invoice)));
       setDraft(cloneInvoice(finalized));
+      if (finalized.driveUploadedAt && !finalized.driveUploadError) {
+        await advanceAfterDriveUpload(finalized);
+        return;
+      }
       const driveMessage = finalized.driveUploadError
         ? ` Drive upload needs attention: ${finalized.driveUploadError}`
-        : finalized.driveUploadedAt
-          ? " Sent to Google Drive."
-          : "";
+        : "";
       setMessage(finalized.finalFileName ? `Finalized ${finalized.finalFileName}.${driveMessage}` : "Invoice needs review.");
       setView("queue");
       if (finalized.finalFileName) setInvoiceFilter("finalized");
@@ -316,20 +316,75 @@ function App() {
     }
   }
 
-  async function handleSendToDrive(invoice: InvoiceRecord) {
-    setBusy(true);
-    setMessage("Sending PDF to Google Drive...");
+  async function advanceAfterDriveUpload(updated: InvoiceRecord) {
+    let latestInvoices = invoices.map((record) => (record.id === updated.id ? updated : record));
+    let refreshWarning = "";
     try {
-      const updated = await sendInvoiceToDrive(invoice.id);
+      latestInvoices = (await fetchInvoices()).invoices;
+    } catch {
+      refreshWarning = " The invoice list could not be refreshed; showing the locally updated queue.";
+    }
+    const nextId = nextPendingInvoiceId(latestInvoices, updated.id);
+    setInvoices(latestInvoices);
+    setInvoiceFilter("pending");
+    setView("queue");
+    setSelectedId(nextId);
+    setMessage(
+      `Sent ${updated.driveFileName || updated.finalFileName || "PDF"} to Google Drive. ` +
+      (nextId ? "Ready for the next invoice." : "All invoices have been sent to Drive.") + refreshWarning
+    );
+  }
+
+  async function handleSendToDrive(invoice: InvoiceRecord) {
+    if (busy) return;
+    if (!settings.googleDriveFolderId.trim()) {
+      setMessage("Set the Google Drive folder ID in Settings and save it before sending.");
+      return;
+    }
+    const blockers = validationWarningsForDraft(invoice);
+    if (blockers.length > 0) {
+      setMessage(`Cannot send yet: ${blockers.join(" ")}`);
+      return;
+    }
+    setBusy(true);
+    setMessage("Preparing PDF for Google Drive...");
+    try {
+      const saved = await updateInvoice(invoice);
+      const savedBlockers = validationWarningsForDraft(saved);
+      setInvoices((current) => current.map((record) => (record.id === saved.id ? saved : record)));
+      setDraft(cloneInvoice(saved));
+      if (savedBlockers.length > 0) {
+        setMessage(`Cannot send yet: ${savedBlockers.join(" ")}`);
+        return;
+      }
+      const prepared = await finalizeInvoice(saved.id);
+      setInvoices((current) => current.map((record) => (record.id === prepared.id ? prepared : record)));
+      setDraft(cloneInvoice(prepared));
+      if (!prepared.finalFileName) {
+        setMessage("The invoice must be finalized before it can be sent to Drive.");
+        return;
+      }
+      setMessage("Sending PDF to Google Drive...");
+      // Finalization may already have uploaded this version through auto-upload.
+      const updated = prepared.driveUploadedAt && !prepared.driveUploadError
+        ? prepared
+        : await sendInvoiceToDrive(prepared.id);
       setInvoices((current) => current.map((record) => (record.id === updated.id ? updated : record)));
-      if (selectedId === updated.id) setDraft(cloneInvoice(updated));
-      setMessage(
-        updated.driveUploadError
-          ? `Drive upload needs attention: ${updated.driveUploadError}`
-          : `Sent ${updated.driveFileName || updated.finalFileName || "PDF"} to Google Drive.`
-      );
+      setDraft(cloneInvoice(updated));
+      if (updated.driveUploadError || !updated.driveUploadedAt) {
+        setMessage(`Drive upload needs attention: ${updated.driveUploadError || "Upload was not confirmed. Please retry."}`);
+        return;
+      }
+      await advanceAfterDriveUpload(updated);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Google Drive upload failed");
+      if (error instanceof ApiError && isInvoiceRecord(error.body)) {
+        const blockedInvoice = error.body;
+        setInvoices((current) => current.map((record) => (record.id === blockedInvoice.id ? blockedInvoice : record)));
+        setDraft(cloneInvoice(blockedInvoice));
+        setMessage(`Cannot send yet: ${blockedInvoice.error || blockedInvoice.warnings.join(" ")}`);
+      } else {
+        setMessage(error instanceof Error ? error.message : "Google Drive upload failed");
+      }
     } finally {
       setBusy(false);
     }
@@ -412,6 +467,7 @@ function App() {
   }
 
   function showInvoiceFilter(filter: InvoiceFilter) {
+    if (busy) return;
     const nextInvoices = invoicesForFilter(invoices, filter);
     setInvoiceFilter(filter);
     setView("queue");
@@ -564,13 +620,16 @@ function App() {
                     key={invoice.id}
                     className={`invoice-row ${selectedId === invoice.id ? "selected" : ""}`}
                     onClick={() => setSelectedId(invoice.id)}
+                    disabled={busy}
                   >
                     <span className="doc-chip"><FileText size={15} /></span>
                     <div>
                       <strong>{invoice.extraction.vendorName || invoice.originalName}</strong>
                       <span>{invoice.extraction.invoiceNumber || "No invoice number"} · {formatMoney(invoice.extraction.totalAmount)}</span>
                     </div>
-                    <em className={`status ${invoice.status}`}>{statusLabel(invoice.status)}</em>
+                    <em className={`status ${invoice.status}`}>
+                      {invoice.driveUploadedAt ? "sent to Drive" : invoice.finalFileName ? "ready to send" : statusLabel(invoice.status)}
+                    </em>
                   </button>
                 ))}
                 {displayedInvoices.length === 0 && (
@@ -594,15 +653,27 @@ function App() {
                         <span>Source PDF</span>
                         <strong>{draft.originalName}</strong>
                       </div>
-                      <div className="confidence-pill">
-                        <Sparkles size={15} />
-                        {formatPercent(draft.extraction.confidence)} extraction
+                      <div className="document-toolbar-actions">
+                        <div className="confidence-pill">
+                          <Sparkles size={15} />
+                          {formatPercent(draft.extraction.confidence)} extraction
+                        </div>
+                        <button
+                          type="button"
+                          className="primary send-drive-button"
+                          onClick={() => handleSendToDrive(draft)}
+                          disabled={busy || finalizeBlockers.length > 0}
+                          title={finalizeBlockers.length > 0 ? finalizeBlockers.join(" ") : "Save, stamp, send to Drive, and open the next pending invoice"}
+                        >
+                          <CloudUpload size={18} /> {draft.driveUploadedAt ? "Send again to Drive" : "Send to Drive"}
+                        </button>
                       </div>
                     </div>
                     <PdfStampPlacementEditor
                       key={draft.id}
                       invoiceId={draft.id}
                       placement={draft.stampPlacement}
+                      disabled={busy}
                       onChange={(stampPlacement) => updateDraft({ stampPlacement })}
                     />
                     <div className="document-footer">
@@ -610,7 +681,7 @@ function App() {
                       <span><ShieldCheck size={14} /> {draft.finalFileName ? "Finalized — download the stamped PDF from the review panel" : finalizeBlockers.length === 0 ? "Ready to finalize" : `${finalizeBlockers.length} items to review`}</span>
                     </div>
                   </div>
-                  <aside className="review-panel approval-cockpit">
+                  <aside className="review-panel approval-cockpit" inert={busy}>
                     <div className="panel-heading">
                       <div>
                         <span>Invoice details · {statusLabel(draft.status)}</span>
@@ -619,7 +690,7 @@ function App() {
                       <BadgeCheck size={22} />
                     </div>
                     {draft.finalFileName && (
-                      <p className="finalized-note">This invoice is finalized. Layout changes require finalizing again to update the stamped PDF.</p>
+                      <p className="finalized-note">This invoice is finalized. Send to Drive saves your latest details and stamp layout before uploading.</p>
                     )}
 
                     {draft.warnings.length > 0 && (
@@ -755,9 +826,6 @@ function App() {
                         <a className="download-link" href={`/api/invoices/${draft.id}/final.pdf`}>
                           <Download size={18} /> {draft.finalFileName}
                         </a>
-                        <button className="download-link" onClick={() => handleSendToDrive(draft)} disabled={busy}>
-                          <CloudUpload size={18} /> {draft.driveUploadedAt ? "Send again to Drive" : "Send to Drive"}
-                        </button>
                         {draft.driveWebViewLink && (
                           <a className="download-link secondary-link" href={draft.driveWebViewLink} target="_blank" rel="noreferrer">
                             <ExternalLink size={18} /> Open in Drive
@@ -769,7 +837,13 @@ function App() {
                   </aside>
                 </>
               ) : (
-                <div className="empty-state">No invoice selected.</div>
+                <div className="empty-state">
+                  {invoiceFilter === "pending"
+                    ? invoices.length > 0 && queueInvoices.length === 0
+                      ? "All invoices have been sent to Drive. Upload more PDFs or open Finalized to view completed invoices."
+                      : "Select a pending invoice or upload PDFs to get started."
+                    : "No invoice selected."}
+                </div>
               )}
             </div>
           </section>
@@ -872,10 +946,12 @@ function App() {
 function PdfStampPlacementEditor({
   invoiceId,
   placement,
+  disabled,
   onChange
 }: {
   invoiceId: string;
   placement: InvoiceRecord["stampPlacement"];
+  disabled: boolean;
   onChange: (placement: InvoiceRecord["stampPlacement"]) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -1055,7 +1131,7 @@ function PdfStampPlacementEditor({
     } as const);
 
   return (
-    <div className="stamp-placement">
+    <div className="stamp-placement" inert={disabled}>
       <div className="section-title">
         <div>
           <h3>Stamp layout</h3>
